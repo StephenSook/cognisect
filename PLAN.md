@@ -21,6 +21,7 @@ The compiler proves disagreement between formalized rules. It does not prove a l
 - Predictions and a hash of the full probe specification are persisted before learner access.
 - Learner answer is a strict signed integer; rationale is review-only.
 - Evidence vocabulary is limited to `supported`, `weakened`, `unresolved`, and `abstained`.
+- Evidence matching tests the stored correct prediction first; when the learner answer equals it, every alternative is `weakened`, even if an alternative prediction collides.
 - Python 3.12, FastAPI, SQLAlchemy 2, Alembic, LangGraph, Postgres only; Next.js App Router and strict TypeScript.
 - Owner and learner secrets are opaque, high entropy, hashed at rest, redacted from logs, and separated by purpose.
 - GET never consumes learner tokens. POST is atomic and idempotent.
