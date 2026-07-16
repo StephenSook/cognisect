@@ -33,9 +33,10 @@ class Settings(BaseSettings):
     retention_days: int = Field(default=30, ge=1, le=365)
     max_model_calls_per_case: int = Field(default=3, ge=1, le=3)
     max_model_cost_usd: float = Field(default=1.0, gt=0)
-    model_luna: str = "gpt-5.6-luna"
-    model_terra: str = "gpt-5.6-terra"
-    model_sol: str = "gpt-5.6-sol"
+    model_luna: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
+    model_terra: Literal["gpt-5.6-terra"] = "gpt-5.6-terra"
+    model_sol: Literal["gpt-5.6-sol"] = "gpt-5.6-sol"
+    langgraph_strict_msgpack: Literal[True] = True
 
     @field_validator("database_url")
     @classmethod

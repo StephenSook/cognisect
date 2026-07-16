@@ -99,6 +99,21 @@ def test_positive_review_requires_non_empty_note(decision):
         ReviewRequest(expected_version=7, decision=decision, note="   ")
 
 
+def test_final_review_allows_strict_abstention_without_edit_content() -> None:
+    request = ReviewRequest(
+        expected_version=7,
+        decision="abstained",
+        note="Evidence remains insufficient for a release decision.",
+    )
+    assert request.decision == "abstained"
+    with pytest.raises(ValueError, match="edited_text"):
+        ReviewRequest(
+            expected_version=7,
+            decision="abstained",
+            edited_text="must not be released",
+        )
+
+
 def test_rejected_review_forbids_approved_or_edited_text():
     with pytest.raises(ValidationError):
         ReviewRequest(

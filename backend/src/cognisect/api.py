@@ -11,6 +11,7 @@ import structlog
 from fastapi import Cookie, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
@@ -36,6 +37,7 @@ from cognisect.config import Settings, is_production
 from cognisect.database import create_engine, create_session_factory
 from cognisect.db_models import SCHEMA_VERSION
 from cognisect.interpreter import COMPILER_VERSION, REGISTRY_VERSION
+from cognisect.model_analyzer import ResponsesAnalyzer
 from cognisect.repositories import (
     ConcurrentWriteError,
     OwnedResourceNotFoundError,
@@ -47,11 +49,17 @@ from cognisect.services import (
     AnalyzerExecutionError,
     AnalyzerNotConfiguredError,
     ExpiredLearnerTokenError,
+    GraphRuntime,
     LearnerTokenNotFoundError,
     ReplayConflictError,
     WorkflowService,
 )
 from cognisect.workflow import WorkflowTransitionError
+from cognisect.workflow_graph import (
+    WorkflowGraphRuntime,
+    checkpoint_connection_url,
+    secure_checkpoint_serializer,
+)
 
 OWNER_COOKIE_NAME = "cognisect_owner"
 IdempotencyKey = Annotated[
@@ -82,6 +90,7 @@ def create_app(  # noqa: C901, PLR0915
     settings: Settings | None = None,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     analyzer: Analyzer | None,
+    graph_runtime: GraphRuntime | None = None,
 ) -> FastAPI:
     """Construct an app; analyzer omission remains explicit and never installs a fake."""
     resolved_settings = settings or Settings()  # type: ignore[call-arg]
@@ -90,14 +99,38 @@ def create_app(  # noqa: C901, PLR0915
         owned_engine = create_engine(resolved_settings.database_url)
         session_factory = create_session_factory(owned_engine)
 
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        yield
-        if owned_engine is not None:
-            await owned_engine.dispose()
-
     configure_logging()
     logger = structlog.get_logger()
+    service = WorkflowService(
+        session_factory,
+        resolved_settings,
+        analyzer=analyzer,
+    )
+    if graph_runtime is not None:
+        service.attach_graph_runtime(graph_runtime)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            if graph_runtime is None and is_production(resolved_settings):
+                async with AsyncPostgresSaver.from_conn_string(
+                    checkpoint_connection_url(resolved_settings.database_url),
+                    serde=secure_checkpoint_serializer(),
+                ) as managed_checkpointer:
+                    managed_runtime = WorkflowGraphRuntime(
+                        session_factory,
+                        managed_checkpointer,
+                        update_action=service.advance_response_update,
+                    )
+                    service.attach_graph_runtime(managed_runtime)
+                    _app.state.graph_runtime = managed_runtime
+                    yield
+            else:
+                yield
+        finally:
+            if owned_engine is not None:
+                await owned_engine.dispose()
+
     app = FastAPI(
         title="COGNISECT API",
         version=__version__,
@@ -106,14 +139,10 @@ def create_app(  # noqa: C901, PLR0915
         openapi_url=None,
         lifespan=lifespan,
     )
-    service = WorkflowService(
-        session_factory,
-        resolved_settings,
-        analyzer=analyzer,
-    )
     app.state.settings = resolved_settings
     app.state.session_factory = session_factory
     app.state.workflow_service = service
+    app.state.graph_runtime = graph_runtime
 
     @app.middleware("http")
     async def structured_request_log(
@@ -328,5 +357,7 @@ def create_app(  # noqa: C901, PLR0915
 
 
 def build_app() -> FastAPI:
-    """Uvicorn factory using strict environment settings and no implicit analyzer fake."""
-    return create_app(settings=Settings(), analyzer=None)  # type: ignore[call-arg]
+    """Install the real analyzer only for a fully validated production environment."""
+    settings = Settings()  # type: ignore[call-arg]
+    analyzer = ResponsesAnalyzer(settings) if is_production(settings) else None
+    return create_app(settings=settings, analyzer=analyzer)

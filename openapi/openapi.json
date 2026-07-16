@@ -332,7 +332,8 @@
             "enum": [
               "approved",
               "edited",
-              "rejected"
+              "rejected",
+              "abstained"
             ],
             "title": "Decision",
             "type": "string"

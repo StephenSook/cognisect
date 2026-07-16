@@ -108,7 +108,7 @@ class ReviewRequest(StrictContractModel):
     """Teacher decision at the final workflow interrupt."""
 
     expected_version: Annotated[int, Field(strict=True, ge=0)]
-    decision: Literal["approved", "edited", "rejected"]
+    decision: Literal["approved", "edited", "rejected", "abstained"]
     note: Annotated[str, StringConstraints(strict=True, max_length=4_000)] | None = None
     edited_text: Annotated[
         str, StringConstraints(strict=True, min_length=1, max_length=8_000)
@@ -116,7 +116,7 @@ class ReviewRequest(StrictContractModel):
 
     @model_validator(mode="after")
     def decision_fields_are_consistent(self) -> Self:
-        """Keep approved/edited content impossible on rejected paths."""
+        """Keep approved/edited content impossible on non-editing paths."""
         if self.decision in {"approved", "edited"} and not (self.note and self.note.strip()):
             msg = "approved and edited reviews require a non-empty note"
             raise ValueError(msg)

@@ -3,4 +3,5 @@ set -eu
 
 : "${DATABASE_URL:?DATABASE_URL is required}"
 export COGNISECT_DATABASE_URL="${DATABASE_URL}"
-exec alembic upgrade head
+alembic upgrade head
+python scripts/setup_checkpoints.py

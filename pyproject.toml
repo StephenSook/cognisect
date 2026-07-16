@@ -11,6 +11,9 @@ dependencies = [
   "alembic==1.18.5",
   "fastapi==0.139.0",
   "httpx==0.28.1",
+  "langgraph==1.2.9",
+  "langgraph-checkpoint-postgres==3.1.0",
+  "openai==2.45.0",
   "psycopg[binary,pool]==3.3.4",
   "pydantic==2.13.4",
   "pydantic-settings==2.14.2",
@@ -60,7 +63,20 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"backend/tests/**" = ["ANN", "D", "PLR2004", "S101"]
+"backend/tests/**" = [
+  "ANN",
+  "D",
+  "EM101",
+  "FBT001",
+  "PLC0415",
+  "PLR2004",
+  "PT018",
+  "S101",
+  "S608",
+  "SLF001",
+  "TRY003",
+]
+"scripts/**" = ["EM101", "S106", "T201", "TRY003"]
 
 [[tool.mypy.overrides]]
 module = "alembic.*"

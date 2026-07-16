@@ -196,9 +196,7 @@ async def test_approval_uses_fresh_nonce_and_exact_replay_returns_same_capabilit
     factory = create_session_factory(db_engine)
     async with factory() as session:
         token_record = await session.scalar(
-            select(LearnerTokenRecord).where(
-                LearnerTokenRecord.workflow_id == created.workflow_id
-            )
+            select(LearnerTokenRecord).where(LearnerTokenRecord.workflow_id == created.workflow_id)
         )
     assert token_record is not None
     assert len(token_record.derivation_nonce) == 32
@@ -433,9 +431,226 @@ async def test_full_loop_review_and_audit_readback(service, case_request):
 
 
 @pytest.mark.postgres
-async def test_delete_removes_content_and_leaves_only_tombstone(
+async def test_final_teacher_abstention_persists_before_graph_resume_and_replays(
     service, db_engine, case_request
 ):
+    created, workflow = await prepare_probe(service, case_request)
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=True),
+        idempotency_key="abstain-approve",
+    )
+    await service.submit_learner_response(
+        token=approved.token,
+        request=LearnerSubmitRequest(answer=3),
+        idempotency_key="abstain-submit",
+    )
+    pending = await service.get_workflow(created.owner_secret, created.workflow_id)
+
+    class ReviewGraph:
+        def __init__(self) -> None:
+            self.resumes = 0
+
+        async def resume_review(self, thread_id, *, decision):
+            persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
+            assert persisted.state == WorkflowState.ABSTAINED
+            assert persisted.thread_id == thread_id
+            assert decision == "abstained"
+            self.resumes += 1
+
+    graph = ReviewGraph()
+    service.attach_graph_runtime(graph)
+    request = ReviewRequest(
+        expected_version=pending.version,
+        decision="abstained",
+        note="Evidence remains insufficient.",
+    )
+    first = await service.review_workflow(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=request,
+        idempotency_key="abstain-review",
+    )
+    replay = await service.review_workflow(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=request,
+        idempotency_key="abstain-review",
+    )
+
+    assert first.state == replay.state == WorkflowState.ABSTAINED
+    assert graph.resumes == 2
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.state == "ABSTAINED"
+    assert dto.edited_text is None
+    events = await service.get_audit(created.owner_secret, created.workflow_id)
+    assert events[-1].to_state == WorkflowState.ABSTAINED
+    assert events[-1].version == 8
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        review = await session.scalar(select(TeacherReviewRecord))
+    assert review is not None
+    assert review.decision == "abstained"
+    assert review.edited_text is None
+
+
+@pytest.mark.postgres
+async def test_exact_learner_replay_recovers_crash_after_resume_pending(service, case_request):
+    created, workflow = await prepare_probe(service, case_request)
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=True),
+        idempotency_key="approve-before-crash",
+    )
+
+    class CrashOnceGraph:
+        def __init__(self) -> None:
+            self.response_resumes = 0
+
+        async def resume_after_response(self, workflow_id, thread_id):
+            assert workflow_id == created.workflow_id
+            assert thread_id == workflow.thread_id
+            self.response_resumes += 1
+            if self.response_resumes == 1:
+                return {}
+            await service.advance_response_update(workflow_id)
+            return {"__interrupt__": ("teacher_review",)}
+
+    graph = CrashOnceGraph()
+    service.attach_graph_runtime(graph)
+    request = LearnerSubmitRequest(answer=3, rationale="deidentified")
+
+    first = await service.submit_learner_response(
+        token=approved.token,
+        request=request,
+        idempotency_key="recoverable-submit",
+    )
+    interrupted = await service.get_workflow(created.owner_secret, created.workflow_id)
+    assert interrupted.state == WorkflowState.RESUME_PENDING
+
+    replay = await service.submit_learner_response(
+        token=approved.token,
+        request=request,
+        idempotency_key="recoverable-submit",
+    )
+
+    recovered = await service.get_workflow(created.owner_secret, created.workflow_id)
+    assert replay == first
+    assert recovered.state == WorkflowState.AWAITING_REVIEW
+    assert graph.response_resumes == 2
+
+
+@pytest.mark.postgres
+async def test_graph_commands_observe_db_state_first_and_replays_recover(service, case_request):
+    created = await service.create_case(case_request, idempotency_key="graph-create")
+
+    class OrderingGraph:
+        def __init__(self) -> None:
+            self.probe_starts = 0
+            self.probe_resumes = 0
+            self.response_resumes = 0
+            self.review_resumes = 0
+
+        async def start_probe_interrupt(self, workflow_id, thread_id):
+            persisted = await service.get_workflow(created.owner_secret, workflow_id)
+            assert persisted.state == WorkflowState.PROBE_READY
+            assert persisted.thread_id == thread_id
+            self.probe_starts += 1
+
+        async def resume_probe(self, thread_id, *, approved):
+            persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
+            expected = WorkflowState.AWAITING_RESPONSE if approved else WorkflowState.ABSTAINED
+            assert persisted.state == expected
+            assert persisted.thread_id == thread_id
+            self.probe_resumes += 1
+
+        async def resume_after_response(self, workflow_id, thread_id):
+            persisted = await service.get_workflow(created.owner_secret, workflow_id)
+            assert persisted.state in {
+                WorkflowState.RESUME_PENDING,
+                WorkflowState.AWAITING_REVIEW,
+            }
+            assert persisted.thread_id == thread_id
+            self.response_resumes += 1
+            await service.advance_response_update(workflow_id)
+
+        async def resume_review(self, thread_id, *, decision):
+            persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
+            assert persisted.state == WorkflowState.APPROVED
+            assert persisted.thread_id == thread_id
+            assert decision == "approved"
+            self.review_resumes += 1
+
+    graph = OrderingGraph()
+    service.attach_graph_runtime(graph)
+    workflow = await service.analyze_case(
+        owner_secret=created.owner_secret,
+        case_id=created.case_id,
+        expected_version=0,
+        idempotency_key="graph-analysis",
+    )
+    replayed_workflow = await service.analyze_case(
+        owner_secret=created.owner_secret,
+        case_id=created.case_id,
+        expected_version=0,
+        idempotency_key="graph-analysis",
+    )
+    assert replayed_workflow.id == workflow.id
+    approval_request = ProbeApprovalRequest(expected_version=workflow.version, approved=True)
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=approval_request,
+        idempotency_key="graph-approval",
+    )
+    replayed_approval = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=approval_request,
+        idempotency_key="graph-approval",
+    )
+    assert replayed_approval.token == approved.token
+
+    submit_request = LearnerSubmitRequest(answer=3)
+    await service.submit_learner_response(
+        token=approved.token,
+        request=submit_request,
+        idempotency_key="graph-response",
+    )
+    await service.submit_learner_response(
+        token=approved.token,
+        request=submit_request,
+        idempotency_key="graph-response",
+    )
+    pending = await service.get_workflow(created.owner_secret, created.workflow_id)
+    review_request = ReviewRequest(
+        expected_version=pending.version,
+        decision="approved",
+        note="reviewed",
+    )
+    await service.review_workflow(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=review_request,
+        idempotency_key="graph-review",
+    )
+    await service.review_workflow(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=review_request,
+        idempotency_key="graph-review",
+    )
+
+    assert graph.probe_starts == 2
+    assert graph.probe_resumes == 2
+    assert graph.response_resumes == 2
+    assert graph.review_resumes == 2
+
+
+@pytest.mark.postgres
+async def test_delete_removes_content_and_leaves_only_tombstone(service, db_engine, case_request):
     created, _workflow = await prepare_probe(service, case_request)
     await service.delete_workflow(
         owner_secret=created.owner_secret,
