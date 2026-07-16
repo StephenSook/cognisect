@@ -1,0 +1,11 @@
+.git
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+.env
+.superpowers
+data
+private
+reference-captures

@@ -1,0 +1,283 @@
+"""Public FastAPI surface, cookie, ownership, and learner privacy contracts."""
+
+from __future__ import annotations
+
+from urllib.parse import urlparse
+
+import httpx
+import pytest
+
+from cognisect.api import OWNER_COOKIE_NAME, create_app
+from cognisect.config import Settings
+from cognisect.database import create_session_factory
+from cognisect.models import RuleInstanceV1, RuleMappingV1
+from cognisect.services import AnalysisInput, AnalyzerResult
+
+EXPECTED_PATHS = {
+    "/v1/cases",
+    "/v1/cases/{case_id}/analysis",
+    "/v1/workflows/{workflow_id}",
+    "/v1/workflows/{workflow_id}/probe-approval",
+    "/v1/respond/{token}",
+    "/v1/workflows/{workflow_id}/review",
+    "/v1/workflows/{workflow_id}/audit",
+    "/health",
+    "/version",
+}
+
+
+class ApiAnalyzer:
+    async def analyze(self, _case: AnalysisInput) -> AnalyzerResult:
+        return AnalyzerResult(
+            mapping=RuleMappingV1(
+                schema_version="rule_mapping.v1",
+                hypotheses=[
+                    RuleInstanceV1(
+                        template_id="add_subtrahend",
+                        evidence_refs=["segment-1"],
+                        description="Adds the written second operand.",
+                        rank=1,
+                    ),
+                    RuleInstanceV1(
+                        template_id="absolute_difference",
+                        evidence_refs=["segment-2"],
+                        description="Uses a non-negative magnitude difference.",
+                        rank=2,
+                    ),
+                ],
+            ),
+            model_id="test-model",
+            model_snapshot="test-model-2026-07-16",
+            request_id="req_test_metadata",
+        )
+
+
+@pytest.fixture
+def api_settings() -> Settings:
+    return Settings(
+        app_env="test",
+        database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
+        owner_secret_pepper="o" * 32,
+        learner_token_pepper="l" * 32,
+        public_app_url="http://localhost:3000",
+        openai_api_key="",
+    )
+
+
+@pytest.fixture
+def app(db_engine, db_session, api_settings):
+    del db_session
+    return create_app(
+        settings=api_settings,
+        session_factory=create_session_factory(db_engine),
+        analyzer=ApiAnalyzer(),
+    )
+
+
+@pytest.fixture
+async def client(app):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as value:
+        yield value
+
+
+def case_payload() -> dict[str, object]:
+    return {
+        "source_tier": "custom",
+        "problem": {"a": -3, "b": 5},
+        "observed_work": "-3 - 5 = 2",
+        "deidentified_attestation": True,
+    }
+
+
+@pytest.mark.postgres
+async def test_public_route_paths_are_exact(app):
+    assert set(app.openapi()["paths"]) == EXPECTED_PATHS
+    assert app.docs_url is None
+    assert app.redoc_url is None
+    assert app.openapi_url is None
+
+
+@pytest.mark.postgres
+async def test_health_and_version(client):
+    health = await client.get("/health")
+    version = await client.get("/version")
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}
+    assert version.status_code == 200
+    assert version.json()["registry_version"] == "rule_registry.v1"
+
+
+@pytest.mark.postgres
+async def test_mutation_requires_bounded_idempotency_header(client):
+    missing = await client.post("/v1/cases", json=case_payload())
+    too_short = await client.post(
+        "/v1/cases", headers={"Idempotency-Key": "tiny"}, json=case_payload()
+    )
+    too_long = await client.post(
+        "/v1/cases", headers={"Idempotency-Key": "x" * 201}, json=case_payload()
+    )
+    assert {missing.status_code, too_short.status_code, too_long.status_code} == {422}
+
+
+@pytest.mark.postgres
+async def test_custom_case_rejects_identifier_fields_at_http_boundary(client):
+    payload = {**case_payload(), "learner_name": "Identifier must be rejected"}
+    response = await client.post(
+        "/v1/cases", headers={"Idempotency-Key": "reject-pii-key"}, json=payload
+    )
+    assert response.status_code == 422
+    assert "Identifier must be rejected" not in response.text
+
+
+@pytest.mark.postgres
+async def test_full_http_loop_privacy_headers_and_audit(client, app):
+    created = await client.post(
+        "/v1/cases", headers={"Idempotency-Key": "create-case-key"}, json=case_payload()
+    )
+    assert created.status_code == 201
+    assert OWNER_COOKIE_NAME in client.cookies
+    identifiers = created.json()
+
+    analyzed = await client.post(
+        f"/v1/cases/{identifiers['case_id']}/analysis",
+        headers={"Idempotency-Key": "analysis-key"},
+        json={"expected_version": 0},
+    )
+    assert analyzed.status_code == 200
+    teacher = analyzed.json()
+    assert teacher["state"] == "PROBE_READY"
+    assert {
+        "schema_version",
+        "registry_version",
+        "prompt_version",
+        "compiler_version",
+        "model_snapshot",
+        "model_request_id",
+        "created_at",
+        "updated_at",
+        "version",
+    }.issubset(teacher)
+
+    approved = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
+        headers={"Idempotency-Key": "probe-approval-key"},
+        json={"expected_version": teacher["version"], "approved": True},
+    )
+    assert approved.status_code == 200
+    response_url = approved.json()["response_url"]
+    token = urlparse(response_url).path.rsplit("/", 1)[-1]
+
+    learner_client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+    )
+    async with learner_client:
+        probe = await learner_client.get(f"/v1/respond/{token}")
+        assert probe.status_code == 200
+        assert probe.headers["referrer-policy"] == "no-referrer"
+        assert probe.headers["cache-control"] == "no-store, private"
+        assert set(probe.json()) == {
+            "problem",
+            "answer_constraints",
+            "expires_at",
+            "instructions",
+        }
+        problem = probe.json()["problem"]
+        submitted = await learner_client.post(
+            f"/v1/respond/{token}",
+            headers={"Idempotency-Key": "learner-submit-key"},
+            json={"answer": problem["a"] - problem["b"]},
+        )
+        assert submitted.status_code == 200
+        assert submitted.headers["referrer-policy"] == "no-referrer"
+        assert submitted.headers["cache-control"] == "no-store, private"
+
+    pending = await client.get(f"/v1/workflows/{identifiers['workflow_id']}")
+    reviewed = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/review",
+        headers={"Idempotency-Key": "teacher-review-key"},
+        json={
+            "expected_version": pending.json()["version"],
+            "decision": "approved",
+            "note": "Teacher reviewed this bounded proposal.",
+        },
+    )
+    assert reviewed.status_code == 200
+    assert reviewed.json()["state"] == "APPROVED"
+    audit = await client.get(f"/v1/workflows/{identifiers['workflow_id']}/audit")
+    assert audit.status_code == 200
+    assert [event["version"] for event in audit.json()["events"]] == list(range(1, 9))
+
+
+@pytest.mark.postgres
+async def test_cross_owner_access_returns_same_non_enumerating_404(app):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as first, httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as second:
+        created = await first.post(
+            "/v1/cases", headers={"Idempotency-Key": "first-owner-key"}, json=case_payload()
+        )
+        await second.post(
+            "/v1/cases", headers={"Idempotency-Key": "second-owner-key"}, json=case_payload()
+        )
+        workflow_id = created.json()["workflow_id"]
+        cross_owner = await second.get(f"/v1/workflows/{workflow_id}")
+        missing_owner = await httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ).get(f"/v1/workflows/{workflow_id}")
+    assert cross_owner.status_code == missing_owner.status_code == 404
+    assert cross_owner.json() == missing_owner.json() == {"detail": "resource not found"}
+
+
+@pytest.mark.postgres
+async def test_production_owner_cookie_is_hardened(db_engine, db_session):
+    del db_session
+    settings = Settings(
+        app_env="production",
+        database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
+        owner_secret_pepper="o" * 32,
+        learner_token_pepper="l" * 32,
+        public_app_url="https://cognisect.example",
+        openai_api_key="sk-test-not-real",
+    )
+    production_app = create_app(
+        settings=settings,
+        session_factory=create_session_factory(db_engine),
+        analyzer=ApiAnalyzer(),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=production_app), base_url="https://cognisect.example"
+    ) as production_client:
+        response = await production_client.post(
+            "/v1/cases", headers={"Idempotency-Key": "production-create-key"}, json=case_payload()
+        )
+    cookie = response.headers["set-cookie"].lower()
+    assert "secure" in cookie
+    assert "httponly" in cookie
+    assert "samesite=lax" in cookie
+
+
+@pytest.mark.postgres
+async def test_teacher_can_decline_probe_into_abstained_without_creating_token(client):
+    created = await client.post(
+        "/v1/cases", headers={"Idempotency-Key": "decline-create-key"}, json=case_payload()
+    )
+    identifiers = created.json()
+    analyzed = await client.post(
+        f"/v1/cases/{identifiers['case_id']}/analysis",
+        headers={"Idempotency-Key": "decline-analysis-key"},
+        json={"expected_version": 0},
+    )
+    declined = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
+        headers={"Idempotency-Key": "decline-probe-key"},
+        json={"expected_version": analyzed.json()["version"], "approved": False},
+    )
+    assert declined.status_code == 200
+    assert declined.json()["response_url"] is None
+    assert declined.json()["expires_at"] is None
+    assert declined.json()["workflow"]["state"] == "ABSTAINED"
