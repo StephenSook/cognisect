@@ -9,8 +9,9 @@ export default function LabPage() {
     <article>
       <h1>Teacher lab</h1>
       <p>
-        Enter educator-authored work or attested de-identified custom work for one subtraction
-        problem. Provenance-cleared built-in records are not yet available in this interface.
+        Select the provenance-cleared COGNISECT educator-authored public exemplar, enter your
+        own educator-authored work, or attest de-identified custom work for one subtraction
+        problem.
       </p>
       <LabForm />
     </article>

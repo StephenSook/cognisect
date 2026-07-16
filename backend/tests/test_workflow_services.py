@@ -812,3 +812,55 @@ async def test_retention_selects_and_purges_cases_older_than_configured_days(
     retention = RetentionService(factory, retention_days=test_settings.retention_days)
     assert await retention.select_expired(now=now) == [created.workflow_id]
     assert await retention.purge_expired(now=now) == 1
+
+
+@pytest.mark.postgres
+async def test_retention_purges_abandoned_empty_owner_sessions(
+    service, db_engine, test_settings
+):
+    await service.bootstrap_owner()
+    factory = create_session_factory(db_engine)
+    now = datetime.now(UTC)
+    async with factory() as session, session.begin():
+        owner = await session.scalar(select(OwnerRecord))
+        assert owner is not None
+        owner.created_at = now - timedelta(days=test_settings.retention_days + 1)
+
+    retention = RetentionService(factory, retention_days=test_settings.retention_days)
+    assert await retention.purge_expired(now=now) == 0
+    async with factory() as session:
+        assert await session.scalar(select(func.count(OwnerRecord.id))) == 0
+
+
+@pytest.mark.postgres
+async def test_retention_skips_empty_owner_locked_for_first_case_registration(
+    service, db_engine, case_request, test_settings
+):
+    owner_secret = await service.bootstrap_owner()
+    factory = create_session_factory(db_engine)
+    now = datetime.now(UTC)
+    async with factory() as session, session.begin():
+        owner = await session.scalar(select(OwnerRecord))
+        assert owner is not None
+        owner.created_at = now - timedelta(days=test_settings.retention_days + 1)
+
+    async with factory() as session, session.begin():
+        owner = await session.scalar(select(OwnerRecord).with_for_update())
+        assert owner is not None
+
+        retention = RetentionService(
+            factory,
+            retention_days=test_settings.retention_days,
+        )
+        purge_task = asyncio.create_task(retention.purge_expired(now=now))
+        assert await asyncio.wait_for(purge_task, timeout=1) == 0
+
+    created = await service.create_case(
+        case_request,
+        idempotency_key="retention-lock-registration",
+        owner_secret=owner_secret,
+    )
+    async with factory() as session:
+        assert await session.scalar(select(func.count(OwnerRecord.id))) == 1
+        assert await session.get(CaseRecord, created.case_id) is not None
+        assert await session.get(WorkflowRecord, created.workflow_id) is not None

@@ -13,7 +13,9 @@ const TERMINAL_STATES = new Set(["APPROVED", "EDITED", "REJECTED", "ABSTAINED", 
 
 export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }) {
   const [workflow, setWorkflow] = useState(initialWorkflow);
-  const [learnerLink, setLearnerLink] = useState<string | null>(null);
+  const [learnerLink, setLearnerLink] = useState<string | null>(
+    initialWorkflow.learner_response_url,
+  );
   const [copyStatus, setCopyStatus] = useState("");
   const [pollStatus, setPollStatus] = useState("");
 
@@ -34,6 +36,7 @@ export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }
           setPollStatus("Workflow refresh is temporarily unavailable.");
         } else {
           setWorkflow(result.data);
+          setLearnerLink(result.data.learner_response_url);
           setPollStatus("");
         }
       } catch {

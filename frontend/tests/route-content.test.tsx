@@ -49,6 +49,7 @@ describe("runtime evidence allowlist", () => {
     const privateMarker = "raw-learner-token-must-not-render";
     workflow.generated_proposal = privateMarker;
     workflow.edited_text = privateMarker;
+    workflow.learner_response_url = `http://localhost:3000/respond/${privateMarker}`;
     workflow.accepted_hypotheses[0]!.description = privateMarker;
     render(
       <RuntimeEvidence

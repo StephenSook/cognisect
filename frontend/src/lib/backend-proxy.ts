@@ -1,3 +1,9 @@
+import {
+  generateOwnerSecret,
+  ownerRetentionSeconds,
+  serializeOwnerCookie,
+} from "@/lib/owner-session";
+
 const ALLOWED_METHODS = new Set(["DELETE", "GET", "POST"]);
 const RESPONSE_HEADERS = [
   "cache-control",
@@ -14,6 +20,7 @@ type ProxyInput = {
   path: string[];
   backendUrl: string;
   fetchImplementation?: typeof fetch;
+  secureOwnerCookie?: boolean;
 };
 
 function ownerCookie(cookieHeader: string | null): string | null {
@@ -88,6 +95,7 @@ export async function forwardBackendRequest({
   path,
   backendUrl,
   fetchImplementation = fetch,
+  secureOwnerCookie = false,
 }: ProxyInput): Promise<Response> {
   if (!ALLOWED_METHODS.has(request.method)) {
     return new Response(null, { status: 405, headers: { Allow: "DELETE, GET, POST" } });
@@ -99,10 +107,26 @@ export async function forwardBackendRequest({
   )
     return rejectedPath(path);
 
+  const cookie = ownerCookie(request.headers.get("cookie"));
+  if (request.method === "POST" && path.join("/") === "v1/cases" && cookie === null) {
+    return Response.json(
+      { detail: "owner session initialized; retry the exact command" },
+      {
+        status: 428,
+        headers: {
+          "cache-control": "no-store, private",
+          "set-cookie": serializeOwnerCookie(generateOwnerSecret(), {
+            secure: secureOwnerCookie,
+            maxAge: ownerRetentionSeconds(process.env.COGNISECT_RETENTION_DAYS),
+          }),
+        },
+      },
+    );
+  }
+
   const requestHeaders = new Headers();
   const contentType = request.headers.get("content-type");
   const idempotencyKey = request.headers.get("idempotency-key");
-  const cookie = ownerCookie(request.headers.get("cookie"));
   if (contentType !== null) requestHeaders.set("content-type", contentType);
   if (idempotencyKey !== null) requestHeaders.set("idempotency-key", idempotencyKey);
   if (cookie !== null && !isLearnerPath(path)) requestHeaders.set("cookie", cookie);

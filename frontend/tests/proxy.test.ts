@@ -3,6 +3,29 @@ import { describe, expect, it, vi } from "vitest";
 import { forwardBackendRequest, resolveBackendUrl } from "@/lib/backend-proxy";
 
 describe("same-origin backend proxy", () => {
+  it("bootstraps an owner without forwarding the first educational mutation", async () => {
+    const upstream = vi.fn();
+    const response = await forwardBackendRequest({
+      request: new Request("http://frontend.test/api/backend/v1/cases", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "stable-create-key",
+        },
+        body: '{"observed_work":"de-identified"}',
+      }),
+      path: ["v1", "cases"],
+      backendUrl: "http://backend.test",
+      fetchImplementation: upstream,
+    });
+
+    expect(response.status).toBe(428);
+    expect(response.headers.get("set-cookie")).toMatch(
+      /^cognisect_owner=[0-9a-f]{64};.*HttpOnly.*SameSite=Lax/i,
+    );
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("forwards only the teacher request contract and owner cookie", async () => {
     const upstream = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       expect(init?.method).toBe("POST");

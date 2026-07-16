@@ -365,6 +365,18 @@ export interface components {
             workflow: components["schemas"]["WorkflowResponse"];
         };
         /**
+         * OwnerBootstrapResponse
+         * @description Privacy-safe signal that an owner session exists before mutation.
+         */
+        OwnerBootstrapResponse: {
+            /**
+             * Detail
+             * @default owner session initialized; retry the exact command
+             * @constant
+             */
+            detail: "owner session initialized; retry the exact command";
+        };
+        /**
          * ProbeApprovalRequest
          * @description Teacher decision at the first workflow interrupt.
          */
@@ -491,6 +503,8 @@ export interface components {
             edited_text?: string | null;
             /** Generated Proposal */
             generated_proposal?: string | null;
+            /** Learner Response Url */
+            learner_response_url: string | null;
             /** Model Request Id */
             model_request_id: string | null;
             /** Model Snapshot */
@@ -586,6 +600,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Owner session initialized before educational mutation */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerBootstrapResponse"];
                 };
             };
         };

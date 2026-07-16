@@ -52,6 +52,14 @@ class CreateCaseResponse(StrictContractModel):
     workflow_id: UUID
 
 
+class OwnerBootstrapResponse(StrictContractModel):
+    """Privacy-safe signal that an owner session exists before mutation."""
+
+    detail: Literal["owner session initialized; retry the exact command"] = (
+        "owner session initialized; retry the exact command"
+    )
+
+
 class AnalysisRequest(StrictContractModel):
     """CAS input for an analysis command."""
 
@@ -193,6 +201,7 @@ class WorkflowResponse(StrictContractModel):
     compiler_version: str
     model_snapshot: str | None
     model_request_id: str | None
+    learner_response_url: str | None
     created_at: datetime
     updated_at: datetime
     version: int

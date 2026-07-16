@@ -28,7 +28,7 @@ describe("lab form", () => {
     render(<LabForm />);
     const user = userEvent.setup();
 
-    await user.selectOptions(screen.getByLabelText("Source tier"), "custom");
+    await user.selectOptions(screen.getByLabelText("Case source"), "custom");
     await user.type(screen.getByLabelText("First integer"), "-3");
     await user.type(screen.getByLabelText("Second integer"), "5");
     await user.type(screen.getByLabelText("Observed work"), "-3 - 5 = 2");
@@ -38,11 +38,18 @@ describe("lab form", () => {
     expect(fetchImplementation).not.toHaveBeenCalled();
   });
 
-  it("offers only educator-authored or attested custom free-entry tiers", () => {
+  it("offers a provenance-backed public exemplar and safe free-entry tiers", async () => {
     render(<LabForm />);
+    const user = userEvent.setup();
     expect(
       screen.getAllByRole("option").map((option) => (option as HTMLOptionElement).value),
-    ).toEqual(["educator_authored", "custom"]);
+    ).toEqual(["public_exemplar", "educator_authored", "custom"]);
+
+    await user.selectOptions(screen.getByLabelText("Case source"), "public_exemplar");
+    expect(screen.getByLabelText("First integer")).toHaveValue("-3");
+    expect(screen.getByLabelText("Second integer")).toHaveValue("5");
+    expect(screen.getByLabelText("Observed work")).toHaveValue("-3 - 5 = 2");
+    expect(screen.getByText(/cognisect-ea-001/i)).toBeInTheDocument();
   });
 
   it("preserves a cryptographically random idempotency key for exact retry", async () => {
@@ -56,14 +63,38 @@ describe("lab form", () => {
     await user.type(screen.getByLabelText("Observed work"), "-3 - 5 = 2");
     await user.click(screen.getByRole("button", { name: "Create and analyze" }));
     await screen.findByText("The request could not reach the service. You can retry safely.");
-    await user.click(screen.getByRole("button", { name: "Create and analyze" }));
+    expect(screen.getByLabelText("Observed work")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry exact command" }));
     await waitFor(() => expect(fetchImplementation).toHaveBeenCalledTimes(2));
 
-    const keys = fetchImplementation.mock.calls.map(([request]) =>
-      (request as Request).headers.get("idempotency-key"),
-    );
+    const requests = fetchImplementation.mock.calls.map(([request]) => request as Request);
+    const keys = requests.map((request) => request.headers.get("idempotency-key"));
     expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
     expect(keys[1]).toBe(keys[0]);
+    expect(await requests[1]!.clone().text()).toBe(await requests[0]!.clone().text());
+  });
+
+  it("associates the observed-work API limit with its field before dispatch", async () => {
+    const fetchImplementation = vi.fn();
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<LabForm />);
+    fireEvent.change(screen.getByLabelText("First integer"), { target: { value: "-3" } });
+    fireEvent.change(screen.getByLabelText("Second integer"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Observed work"), {
+      target: { value: "x".repeat(10_001) },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create and analyze" }));
+
+    expect(screen.getByText(/Observed work must be 10,000 characters or fewer/)).toHaveAttribute(
+      "id",
+      "observed-work-error",
+    );
+    expect(screen.getByLabelText("Observed work")).toHaveAttribute(
+      "aria-describedby",
+      "observed-work-error",
+    );
+    expect(fetchImplementation).not.toHaveBeenCalled();
   });
 
   it("retries only analysis after case creation has already succeeded", async () => {
@@ -86,7 +117,7 @@ describe("lab form", () => {
     await user.click(screen.getByRole("button", { name: "Create and analyze" }));
     await screen.findByText("The request could not reach the service. You can retry safely.");
     expect(screen.getByLabelText("Observed work")).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Create and analyze" }));
+    await user.click(screen.getByRole("button", { name: "Retry exact command" }));
     await waitFor(() => expect(fetchImplementation).toHaveBeenCalledTimes(3));
 
     const requests = fetchImplementation.mock.calls.map(([request]) => request as Request);
@@ -172,13 +203,35 @@ describe("learner response form", () => {
 
     await user.click(screen.getByRole("button", { name: "Submit response" }));
     await screen.findByText("The response service is unavailable. You can retry safely.");
-    await user.click(screen.getByRole("button", { name: "Submit response" }));
+    expect(screen.getByLabelText("Your signed integer")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry exact response" }));
     await waitFor(() => expect(fetchImplementation).toHaveBeenCalledTimes(2));
 
     const requests = fetchImplementation.mock.calls.map(([request]) => request as Request);
     expect(requests[1]?.headers.get("idempotency-key")).toBe(
       requests[0]?.headers.get("idempotency-key"),
     );
+    expect(await requests[1]!.clone().text()).toBe(await requests[0]!.clone().text());
+  });
+
+  it("rejects an oversized rationale at its field without dispatch", async () => {
+    const fetchImplementation = vi.fn();
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<LearnerResponseForm token="learner-token" probe={learnerProbe} />);
+    fireEvent.change(screen.getByLabelText("Your signed integer"), {
+      target: { value: "5" },
+    });
+    fireEvent.change(screen.getByLabelText("Rationale (optional)"), {
+      target: { value: "r".repeat(1_001) },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit response" }));
+
+    expect(screen.getByText(/Rationale must be 1,000 characters or fewer/)).toHaveAttribute(
+      "id",
+      "learner-rationale-error",
+    );
+    expect(fetchImplementation).not.toHaveBeenCalled();
   });
 });
 
@@ -269,12 +322,49 @@ describe("teacher decisions", () => {
     await user.type(screen.getByLabelText("Teacher note"), "Teacher-reviewed note");
     await user.click(screen.getByRole("button", { name: "Save review" }));
     await screen.findByText("The review service is unavailable. You can retry safely.");
-    await user.click(screen.getByRole("button", { name: "Save review" }));
+    expect(screen.getByLabelText("Teacher note")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry exact review" }));
     await waitFor(() => expect(reviewFetch).toHaveBeenCalledTimes(2));
     const reviewRequests = reviewFetch.mock.calls.map(([request]) => request as Request);
     expect(reviewRequests[1]?.headers.get("idempotency-key")).toBe(
       reviewRequests[0]?.headers.get("idempotency-key"),
     );
+    expect(await reviewRequests[1]!.clone().text()).toBe(
+      await reviewRequests[0]!.clone().text(),
+    );
+  });
+
+  it("associates teacher-note and edited-text limits before dispatch", async () => {
+    const fetchImplementation = vi.fn();
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(
+      <ReviewForm
+        workflowId="00000000-0000-4000-8000-000000000001"
+        version={7}
+        generatedProposal="Generated proposal"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Teacher note"), {
+      target: { value: "n".repeat(4_001) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save review" }));
+    expect(screen.getByText(/Teacher note must be 4,000 characters or fewer/)).toHaveAttribute(
+      "id",
+      "teacher-note-error",
+    );
+    expect(fetchImplementation).not.toHaveBeenCalled();
+
+    await userEvent.setup().selectOptions(screen.getByLabelText("Decision"), "edited");
+    fireEvent.change(screen.getByLabelText("Teacher note"), { target: { value: "note" } });
+    fireEvent.change(screen.getByLabelText("Edited proposal"), {
+      target: { value: "e".repeat(8_001) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save review" }));
+    expect(screen.getByText(/Edited proposal must be 8,000 characters or fewer/)).toHaveAttribute(
+      "id",
+      "edited-proposal-error",
+    );
+    expect(fetchImplementation).not.toHaveBeenCalled();
   });
 });
 
@@ -329,6 +419,19 @@ describe("workflow polling", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy learner link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(responseUrl));
     expect(await screen.findByText("Learner link copied.")).toBeInTheDocument();
+  });
+
+  it("recovers an active owner-only learner link on reload", () => {
+    const workflow = workflowFixture("AWAITING_RESPONSE") as ReturnType<
+      typeof workflowFixture
+    > & { learner_response_url: string | null };
+    workflow.learner_response_url = "http://localhost:3000/respond/recovered-token";
+
+    render(<WorkflowPanel initialWorkflow={workflow} />);
+
+    expect(screen.getByRole("textbox", { name: "Learner response link" })).toHaveValue(
+      workflow.learner_response_url,
+    );
   });
 
   it("shows a selectable-link fallback when clipboard copy is unavailable", async () => {

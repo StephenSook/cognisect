@@ -10,7 +10,8 @@ from decimal import Decimal
 from typing import Literal, Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cognisect.api_models import (
@@ -282,6 +283,44 @@ class WorkflowService:
             raise OwnedResourceNotFoundError(msg)
         return owner
 
+    async def bootstrap_owner(self) -> str:
+        """Persist an empty owner capability before any educational mutation."""
+        owner_secret = generate_secret()
+        async with self._sessions() as session, session.begin():
+            session.add(
+                OwnerRecord(
+                    secret_hash=hash_secret(
+                        owner_secret,
+                        self._owner_pepper,
+                        purpose="owner",
+                    )
+                )
+            )
+        return owner_secret
+
+    async def _register_and_lock_owner(
+        self,
+        session: AsyncSession,
+        owner_secret: str,
+    ) -> OwnerRecord:
+        """Register a pre-established owner once and serialize its first command."""
+        secret_hash = hash_secret(owner_secret, self._owner_pepper, purpose="owner")
+        for _attempt in range(2):
+            await session.execute(
+                pg_insert(OwnerRecord)
+                .values(secret_hash=secret_hash)
+                .on_conflict_do_nothing(index_elements=[OwnerRecord.secret_hash])
+            )
+            owner = await session.scalar(
+                select(OwnerRecord)
+                .where(OwnerRecord.secret_hash == secret_hash)
+                .with_for_update()
+            )
+            if owner is not None:
+                return owner
+        msg = "resource not found"
+        raise OwnedResourceNotFoundError(msg)
+
     async def _idempotency_replay(
         self,
         session: AsyncSession,
@@ -344,7 +383,7 @@ class WorkflowService:
                 session.add(owner)
                 await session.flush()
             else:
-                owner = await self._owner_for_secret(session, owner_secret)
+                owner = await self._register_and_lock_owner(session, owner_secret)
                 replay = await self._idempotency_replay(
                     session,
                     owner_id=owner.id,
@@ -1263,6 +1302,36 @@ class WorkflowService:
             review = await session.scalar(
                 select(TeacherReviewRecord).where(TeacherReviewRecord.workflow_id == workflow_id)
             )
+            active_token = None
+            if workflow.state == WorkflowState.AWAITING_RESPONSE:
+                active_token = await session.scalar(
+                    select(LearnerTokenRecord).where(
+                        LearnerTokenRecord.workflow_id == workflow_id,
+                        LearnerTokenRecord.expires_at > _now_utc(self._clock),
+                        ~exists(
+                            select(LearnerResponseRecord.id).where(
+                                LearnerResponseRecord.learner_token_id
+                                == LearnerTokenRecord.id
+                            )
+                        ),
+                        ~exists(
+                            select(InvalidLearnerCommandRecord.id).where(
+                                InvalidLearnerCommandRecord.learner_token_id
+                                == LearnerTokenRecord.id
+                            )
+                        ),
+                    )
+                )
+            learner_response_url = None
+            if active_token is not None:
+                active_secret = derive_learner_secret(
+                    active_token.id,
+                    active_token.derivation_nonce,
+                    self._learner_pepper,
+                )
+                learner_response_url = (
+                    f"{self._settings.public_app_url}/respond/{active_secret}"
+                )
             return WorkflowResponse(
                 workflow_id=workflow.id,
                 case_id=workflow.case_id,
@@ -1274,6 +1343,7 @@ class WorkflowService:
                 compiler_version=workflow.compiler_version,
                 model_snapshot=workflow.model_snapshot,
                 model_request_id=workflow.model_request_id,
+                learner_response_url=learner_response_url,
                 created_at=workflow.created_at,
                 updated_at=workflow.updated_at,
                 version=workflow.version,
@@ -1538,4 +1608,31 @@ class RetentionService:
                 )
                 if remaining == 0:
                     await session.execute(delete(OwnerRecord).where(OwnerRecord.id == owner_id))
+            stale_empty_owner_ids = list(
+                (
+                    await session.scalars(
+                        select(OwnerRecord.id)
+                        .where(
+                            OwnerRecord.created_at < cutoff,
+                            ~exists(
+                                select(CaseRecord.id).where(
+                                    CaseRecord.owner_id == OwnerRecord.id
+                                )
+                            ),
+                        )
+                        .with_for_update(skip_locked=True)
+                    )
+                ).all()
+            )
+            if stale_empty_owner_ids:
+                await session.execute(
+                    delete(OwnerRecord).where(
+                        OwnerRecord.id.in_(stale_empty_owner_ids),
+                        ~exists(
+                            select(CaseRecord.id).where(
+                                CaseRecord.owner_id == OwnerRecord.id
+                            )
+                        ),
+                    )
+                )
             return len(rows)

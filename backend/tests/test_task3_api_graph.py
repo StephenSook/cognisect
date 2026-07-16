@@ -25,6 +25,7 @@ from cognisect.db_models import (
 )
 from cognisect.model_analyzer import ResponsesAnalyzer
 from cognisect.model_attempts import PostgresAttemptJournal
+from cognisect.security import generate_secret
 from cognisect.workflow_graph import (
     WorkflowGraphRuntime,
     checkpoint_connection_url,
@@ -186,7 +187,9 @@ async def test_full_api_loop_uses_official_transport_and_real_checkpoint_tables(
         service.attach_graph_runtime(runtime)
 
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies={OWNER_COOKIE_NAME: generate_secret()},
         ) as client:
             created = await client.post(
                 "/v1/cases",
@@ -330,6 +333,7 @@ async def test_public_api_recovers_across_fresh_apps_after_both_durable_boundari
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=first_app),
             base_url="http://testserver",
+            cookies={OWNER_COOKIE_NAME: generate_secret()},
         ) as first_client:
             created = await first_client.post(
                 "/v1/cases",

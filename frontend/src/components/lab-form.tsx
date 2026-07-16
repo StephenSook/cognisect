@@ -6,52 +6,85 @@ import { useRouter } from "next/navigation";
 import type { components } from "@/lib/api/schema";
 import { createBrowserApiClient } from "@/lib/api/browser-client";
 import { mutationKey } from "@/lib/idempotency";
+import { DEFAULT_PUBLIC_EDUCATOR_CASE } from "@/lib/public-cases";
 import { strictInteger } from "@/lib/validation";
 
-type SourceTier = components["schemas"]["CreateCaseRequest"]["source_tier"];
 type CaseRequest = components["schemas"]["CreateCaseRequest"];
 type CreatedCase = components["schemas"]["CreateCaseResponse"];
+type SourceMode = "public_exemplar" | "educator_authored" | "custom";
+type FieldErrors = Partial<Record<"first" | "second" | "observed" | "attestation", string>>;
 
-const SOURCE_TIERS: { value: SourceTier; label: string }[] = [
-  { value: "educator_authored", label: "Educator authored" },
-  { value: "custom", label: "Custom" },
+const SOURCE_OPTIONS: { value: SourceMode; label: string }[] = [
+  { value: "public_exemplar", label: "COGNISECT educator-authored public exemplar" },
+  { value: "educator_authored", label: "Educator-authored free entry" },
+  { value: "custom", label: "Custom de-identified entry" },
 ];
 
 export function LabForm() {
   const router = useRouter();
-  const [sourceTier, setSourceTier] = useState<SourceTier>("educator_authored");
+  const [sourceMode, setSourceMode] = useState<SourceMode>("educator_authored");
+  const [first, setFirst] = useState("");
+  const [second, setSecond] = useState("");
+  const [observedWork, setObservedWork] = useState("");
+  const [attested, setAttested] = useState(false);
   const [pending, setPending] = useState(false);
+  const [commandLocked, setCommandLocked] = useState(false);
   const [caseCommitted, setCaseCommitted] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const createKey = useRef<string | null>(null);
   const analysisKey = useRef<string | null>(null);
   const createdCase = useRef<CreatedCase | null>(null);
   const caseRequest = useRef<CaseRequest | null>(null);
 
-  async function submit(formData: FormData) {
-    if (createdCase.current === null) {
-      const first = strictInteger(String(formData.get("a") ?? ""), -12, 12);
-      const second = strictInteger(String(formData.get("b") ?? ""), -12, 12);
-      const observedWork = String(formData.get("observed_work") ?? "").trim();
-      const attested = formData.get("deidentified_attestation") === "on";
-      if (first === null || second === null) {
-        setError("Each problem value must be a whole integer from -12 through 12.");
-        return;
-      }
-      if (!observedWork) {
-        setError("Observed work is required.");
-        return;
-      }
-      if (sourceTier === "custom" && !attested) {
-        setError("Confirm that custom content is de-identified before continuing.");
-        return;
-      }
-      caseRequest.current = {
-        source_tier: sourceTier,
-        problem: { a: first, b: second },
-        observed_work: observedWork,
-        deidentified_attestation: attested,
-      };
+  function selectSource(next: SourceMode) {
+    setSourceMode(next);
+    setAttested(false);
+    setFieldErrors({});
+    if (next === "public_exemplar") {
+      setFirst(String(DEFAULT_PUBLIC_EDUCATOR_CASE.content.problem.a));
+      setSecond(String(DEFAULT_PUBLIC_EDUCATOR_CASE.content.problem.b));
+      setObservedWork(DEFAULT_PUBLIC_EDUCATOR_CASE.content.observed_work);
+    } else {
+      setFirst("");
+      setSecond("");
+      setObservedWork("");
+    }
+  }
+
+  function prepareRequest(): CaseRequest | null {
+    const firstInteger = strictInteger(first, -12, 12);
+    const secondInteger = strictInteger(second, -12, 12);
+    const nextErrors: FieldErrors = {};
+    if (firstInteger === null) nextErrors.first = "Enter an integer from -12 through 12.";
+    if (secondInteger === null) nextErrors.second = "Enter an integer from -12 through 12.";
+    const trimmedWork = observedWork.trim();
+    if (!trimmedWork) nextErrors.observed = "Observed work is required.";
+    else if (observedWork.length > 10_000) {
+      nextErrors.observed = "Observed work must be 10,000 characters or fewer.";
+    }
+    if (sourceMode === "custom" && !attested) {
+      nextErrors.attestation =
+        "Confirm that custom content is de-identified before continuing.";
+    }
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0 || firstInteger === null || secondInteger === null) {
+      return null;
+    }
+    return {
+      source_tier: sourceMode === "custom" ? "custom" : "educator_authored",
+      problem: { a: firstInteger, b: secondInteger },
+      observed_work: trimmedWork,
+      deidentified_attestation: sourceMode === "custom" ? attested : false,
+    };
+  }
+
+  async function submit() {
+    if (caseRequest.current === null) {
+      const prepared = prepareRequest();
+      if (prepared === null) return;
+      caseRequest.current = prepared;
+      setCommandLocked(true);
     }
 
     setPending(true);
@@ -60,13 +93,16 @@ export function LabForm() {
     try {
       let created = createdCase.current;
       if (created === null) {
-        if (caseRequest.current === null) throw new Error("case request is unavailable");
         const result = await client.POST("/v1/cases", {
           params: { header: { "Idempotency-Key": mutationKey(createKey) } },
           body: caseRequest.current,
         });
         if (result.data === undefined) {
-          setError("The case was not accepted. Review the fields and retry.");
+          setError(
+            result.response.status === 428
+              ? "The private owner session is ready. Retry sends the exact locked command."
+              : "The case was not accepted. Retry sends the exact locked command.",
+          );
           return;
         }
         created = result.data;
@@ -81,7 +117,7 @@ export function LabForm() {
         body: { expected_version: 0 },
       });
       if (analysis.data === undefined) {
-        setError("Analysis did not complete. You can retry the same command safely.");
+        setError("Analysis did not complete. Retry sends the exact locked command.");
         return;
       }
       router.push(`/case/${analysis.data.workflow_id}`);
@@ -92,28 +128,35 @@ export function LabForm() {
     }
   }
 
+  const fieldsLocked = commandLocked || caseCommitted;
   return (
     <form
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        void submit(new FormData(event.currentTarget));
+        void submit();
       }}
     >
-      <label htmlFor="source-tier">Source tier</label>
+      <label htmlFor="source-tier">Case source</label>
       <select
         id="source-tier"
         name="source_tier"
-        value={sourceTier}
-        disabled={caseCommitted}
-        onChange={(event) => setSourceTier(event.target.value as SourceTier)}
+        value={sourceMode}
+        disabled={fieldsLocked}
+        onChange={(event) => selectSource(event.target.value as SourceMode)}
       >
-        {SOURCE_TIERS.map((tier) => (
-          <option key={tier.value} value={tier.value}>
-            {tier.label}
+        {SOURCE_OPTIONS.map((source) => (
+          <option key={source.value} value={source.value}>
+            {source.label}
           </option>
         ))}
       </select>
+      {sourceMode === "public_exemplar" ? (
+        <p>
+          Educator-authored public exemplar {DEFAULT_PUBLIC_EDUCATOR_CASE.record_id}. It is not
+          learner work or a published student record.
+        </p>
+      ) : null}
 
       <label htmlFor="first-integer">First integer</label>
       <input
@@ -121,8 +164,15 @@ export function LabForm() {
         name="a"
         inputMode="numeric"
         required
-        disabled={caseCommitted}
+        value={first}
+        readOnly={sourceMode === "public_exemplar"}
+        disabled={fieldsLocked}
+        aria-describedby={fieldErrors.first ? "first-integer-error" : undefined}
+        onChange={(event) => setFirst(event.target.value)}
       />
+      {fieldErrors.first ? (
+        <p id="first-integer-error" role="alert">{fieldErrors.first}</p>
+      ) : null}
 
       <label htmlFor="second-integer">Second integer</label>
       <input
@@ -130,8 +180,15 @@ export function LabForm() {
         name="b"
         inputMode="numeric"
         required
-        disabled={caseCommitted}
+        value={second}
+        readOnly={sourceMode === "public_exemplar"}
+        disabled={fieldsLocked}
+        aria-describedby={fieldErrors.second ? "second-integer-error" : undefined}
+        onChange={(event) => setSecond(event.target.value)}
       />
+      {fieldErrors.second ? (
+        <p id="second-integer-error" role="alert">{fieldErrors.second}</p>
+      ) : null}
 
       <label htmlFor="observed-work">Observed work</label>
       <textarea
@@ -139,25 +196,44 @@ export function LabForm() {
         name="observed_work"
         rows={5}
         required
-        disabled={caseCommitted}
+        maxLength={10_000}
+        value={observedWork}
+        readOnly={sourceMode === "public_exemplar"}
+        disabled={fieldsLocked}
+        aria-describedby={fieldErrors.observed ? "observed-work-error" : undefined}
+        onChange={(event) => setObservedWork(event.target.value)}
       />
+      {fieldErrors.observed ? (
+        <p id="observed-work-error" role="alert">{fieldErrors.observed}</p>
+      ) : null}
 
-      {sourceTier === "custom" ? (
-        <label>
-          <input
-            name="deidentified_attestation"
-            type="checkbox"
-            disabled={caseCommitted}
-          />
-          I confirm this custom content is de-identified and contains no learner identity.
-        </label>
+      {sourceMode === "custom" ? (
+        <>
+          <label>
+            <input
+              name="deidentified_attestation"
+              type="checkbox"
+              checked={attested}
+              disabled={fieldsLocked}
+              aria-describedby={fieldErrors.attestation ? "attestation-error" : undefined}
+              onChange={(event) => setAttested(event.target.checked)}
+            />
+            I confirm this custom content is de-identified and contains no learner identity.
+          </label>
+          {fieldErrors.attestation ? (
+            <p id="attestation-error" role="alert">{fieldErrors.attestation}</p>
+          ) : null}
+        </>
       ) : null}
 
       {error === null ? null : <p role="alert">{error}</p>}
+      {commandLocked ? (
+        <p>The command fields are locked so every retry sends the exact same request.</p>
+      ) : null}
       {caseCommitted ? <p>The case is saved; retry runs only analysis.</p> : null}
       <p aria-live="polite">{pending ? "Creating and analyzing the case…" : ""}</p>
       <button type="submit" disabled={pending}>
-        Create and analyze
+        {commandLocked ? "Retry exact command" : "Create and analyze"}
       </button>
     </form>
   );

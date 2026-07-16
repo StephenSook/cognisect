@@ -47,7 +47,10 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   );
 
   await page.getByRole("button", { name: "Approve probe" }).click();
+  const firstLearnerLink = await page.getByLabel("Learner response link").inputValue();
+  await page.reload();
   const learnerLink = await page.getByLabel("Learner response link").inputValue();
+  expect(learnerLink).toBe(firstLearnerLink);
   expect(learnerLink.startsWith(`${E2E_APP_URL}/respond/`)).toBe(true);
   const learnerToken = learnerLink.split("/").at(-1)!;
 

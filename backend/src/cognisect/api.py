@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -28,6 +29,7 @@ from cognisect.api_models import (
     LearnerReceiptResponse,
     LearnerSubmitRequest,
     LearnerTokenResponse,
+    OwnerBootstrapResponse,
     ProbeApprovalRequest,
     ReviewRequest,
     VersionResponse,
@@ -77,10 +79,11 @@ IdempotencyKey = Annotated[
     ),
 ]
 OwnerCookie = Annotated[str | None, Cookie(alias=OWNER_COOKIE_NAME)]
+OWNER_SECRET_PATTERN = re.compile(r"^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$")
 
 
 def _owner_or_404(owner_secret: str | None) -> str:
-    if owner_secret is None:
+    if owner_secret is None or OWNER_SECRET_PATTERN.fullmatch(owner_secret) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
     return owner_secret
 
@@ -170,10 +173,15 @@ def create_app(  # noqa: C901, PLR0915
     async def validation_error_handler(
         request: Request, exception: RequestValidationError
     ) -> JSONResponse:
+        validation_errors = exception.errors()
         invalid_learner_body = (
             request.method == "POST"
             and request.url.path.startswith("/v1/respond/")
-            and any(error.get("loc", (None,))[0] == "body" for error in exception.errors())
+            and bool(validation_errors)
+            and all(
+                tuple(error.get("loc", ()))[:2] == ("body", "answer")
+                for error in validation_errors
+            )
         )
         idempotency_key = request.headers.get("Idempotency-Key")
         token = request.path_params.get("token")
@@ -207,7 +215,7 @@ def create_app(  # noqa: C901, PLR0915
             return JSONResponse(status_code=200, content=content)
         safe_errors = [
             {key: value for key, value in error.items() if key not in {"input", "ctx"}}
-            for error in exception.errors()
+            for error in validation_errors
         ]
         return JSONResponse(status_code=422, content={"detail": safe_errors})
 
@@ -238,28 +246,51 @@ def create_app(  # noqa: C901, PLR0915
     ) -> JSONResponse:
         return JSONResponse(status_code=502, content={"detail": "analysis failed"})
 
-    @app.post("/v1/cases", response_model=CreateCaseResponse, status_code=201)
+    @app.post(
+        "/v1/cases",
+        response_model=CreateCaseResponse,
+        status_code=201,
+        responses={
+            status.HTTP_428_PRECONDITION_REQUIRED: {
+                "model": OwnerBootstrapResponse,
+                "description": "Owner session initialized before educational mutation",
+            }
+        },
+    )
     async def create_case_route(
         request: CreateCaseRequest,
-        response: Response,
         idempotency_key: IdempotencyKey,
         owner_secret: OwnerCookie = None,
-    ) -> CreateCaseResponse:
+    ) -> Response:
+        if owner_secret is None or OWNER_SECRET_PATTERN.fullmatch(owner_secret) is None:
+            bootstrapped_secret = await service.bootstrap_owner()
+            bootstrap_response = JSONResponse(
+                status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+                content=OwnerBootstrapResponse().model_dump(mode="json"),
+            )
+            _privacy_headers(bootstrap_response)
+            bootstrap_response.set_cookie(
+                key=OWNER_COOKIE_NAME,
+                value=bootstrapped_secret,
+                secure=is_production(resolved_settings),
+                httponly=True,
+                samesite="lax",
+                max_age=resolved_settings.retention_days * 86_400,
+                path="/",
+            )
+            return bootstrap_response
         created = await service.create_case(
             request,
             idempotency_key=idempotency_key,
             owner_secret=owner_secret,
         )
-        response.set_cookie(
-            key=OWNER_COOKIE_NAME,
-            value=created.owner_secret,
-            secure=is_production(resolved_settings),
-            httponly=True,
-            samesite="lax",
-            max_age=resolved_settings.retention_days * 86_400,
-            path="/",
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content=CreateCaseResponse(
+                case_id=created.case_id,
+                workflow_id=created.workflow_id,
+            ).model_dump(mode="json"),
         )
-        return CreateCaseResponse(case_id=created.case_id, workflow_id=created.workflow_id)
 
     @app.post("/v1/cases/{case_id}/analysis", response_model=WorkflowResponse)
     async def analyze_case_route(
@@ -279,9 +310,15 @@ def create_app(  # noqa: C901, PLR0915
 
     @app.get("/v1/workflows/{workflow_id}", response_model=WorkflowResponse)
     async def get_workflow_route(
-        workflow_id: UUID, owner_secret: OwnerCookie = None
+        workflow_id: UUID,
+        response: Response,
+        owner_secret: OwnerCookie = None,
     ) -> WorkflowResponse:
-        return await service.get_workflow_dto(_owner_or_404(owner_secret), workflow_id)
+        workflow = await service.get_workflow_dto(
+            _owner_or_404(owner_secret), workflow_id
+        )
+        _privacy_headers(response)
+        return workflow
 
     @app.post(
         "/v1/workflows/{workflow_id}/probe-approval", response_model=LearnerTokenResponse

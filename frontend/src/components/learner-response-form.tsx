@@ -9,24 +9,39 @@ import { strictInteger } from "@/lib/validation";
 
 type LearnerProbe = components["schemas"]["LearnerProbeResponse"];
 type LearnerReceipt = components["schemas"]["LearnerReceiptResponse"];
+type LearnerCommand = components["schemas"]["LearnerSubmitRequest"];
 
 export function LearnerResponseForm({ token, probe }: { token: string; probe: LearnerProbe }) {
   const [pending, setPending] = useState(false);
+  const [commandLocked, setCommandLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [answerError, setAnswerError] = useState<string | null>(null);
+  const [rationaleError, setRationaleError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<LearnerReceipt | null>(null);
   const submitKey = useRef<string | null>(null);
+  const command = useRef<LearnerCommand | null>(null);
 
   async function submit(formData: FormData) {
-    const answer = strictInteger(
-      String(formData.get("answer") ?? ""),
-      probe.answer_constraints.minimum,
-      probe.answer_constraints.maximum,
-    );
-    if (answer === null) {
-      setError("Enter one whole signed integer within the stated range.");
-      return;
+    if (command.current === null) {
+      const answer = strictInteger(
+        String(formData.get("answer") ?? ""),
+        probe.answer_constraints.minimum,
+        probe.answer_constraints.maximum,
+      );
+      const rationale = String(formData.get("rationale") ?? "").trim();
+      setAnswerError(null);
+      setRationaleError(null);
+      if (answer === null) {
+        setAnswerError("Enter one whole signed integer within the stated range.");
+        return;
+      }
+      if (rationale.length > 1_000) {
+        setRationaleError("Rationale must be 1,000 characters or fewer.");
+        return;
+      }
+      command.current = { answer, rationale: rationale || null };
+      setCommandLocked(true);
     }
-    const rationale = String(formData.get("rationale") ?? "").trim();
     setPending(true);
     setError(null);
     try {
@@ -35,7 +50,7 @@ export function LearnerResponseForm({ token, probe }: { token: string; probe: Le
           path: { token },
           header: { "Idempotency-Key": mutationKey(submitKey) },
         },
-        body: { answer, rationale: rationale || null },
+        body: command.current,
       });
       if (result.data !== undefined) {
         setReceipt(result.data);
@@ -80,13 +95,34 @@ export function LearnerResponseForm({ token, probe }: { token: string; probe: Le
         }}
       >
         <label htmlFor="learner-answer">Your signed integer</label>
-        <input id="learner-answer" name="answer" inputMode="numeric" required />
+        <input
+          id="learner-answer"
+          name="answer"
+          inputMode="numeric"
+          required
+          disabled={commandLocked}
+          aria-describedby={answerError ? "learner-answer-error" : undefined}
+        />
+        {answerError ? <p id="learner-answer-error" role="alert">{answerError}</p> : null}
         <label htmlFor="learner-rationale">Rationale (optional)</label>
-        <textarea id="learner-rationale" name="rationale" rows={4} />
+        <textarea
+          id="learner-rationale"
+          name="rationale"
+          rows={4}
+          maxLength={1_000}
+          disabled={commandLocked}
+          aria-describedby={rationaleError ? "learner-rationale-error" : undefined}
+        />
+        {rationaleError ? (
+          <p id="learner-rationale-error" role="alert">{rationaleError}</p>
+        ) : null}
         {error === null ? null : <p role="alert">{error}</p>}
+        {commandLocked ? (
+          <p>The response fields are locked so every retry sends the exact same answer.</p>
+        ) : null}
         <p aria-live="polite">{pending ? "Submitting response…" : ""}</p>
         <button type="submit" disabled={pending}>
-          Submit response
+          {commandLocked ? "Retry exact response" : "Submit response"}
         </button>
       </form>
     </section>

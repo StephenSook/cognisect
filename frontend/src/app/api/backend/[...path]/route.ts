@@ -16,6 +16,7 @@ async function proxyRequest(request: Request, context: RouteContext): Promise<Re
       process.env.NODE_ENV,
       process.env.COGNISECT_FRONTEND_ENV,
     ),
+    secureOwnerCookie: process.env.NODE_ENV === "production",
   });
 }
 
