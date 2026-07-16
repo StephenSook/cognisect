@@ -52,9 +52,11 @@ from cognisect.repositories import (
 )
 from cognisect.security import (
     derive_learner_secret,
+    generate_derivation_nonce,
     generate_secret,
     hash_payload,
     hash_secret,
+    secrets_match,
 )
 from cognisect.workflow import WorkflowState
 
@@ -144,6 +146,15 @@ class LearnerReceipt:
 def _fingerprint(value: object) -> str:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
     return hash_payload(payload)
+
+
+def _deletion_replay_hash(
+    *, owner_secret: str, workflow_id: UUID, idempotency_key: str, owner_pepper: str
+) -> str:
+    """Bind a content-free deletion replay verifier to owner, workflow, and key."""
+    owner_hash = hash_secret(owner_secret, owner_pepper, purpose="owner")
+    replay_secret = f"{owner_hash}\x00{workflow_id}\x00{idempotency_key}"
+    return hash_secret(replay_secret, owner_pepper, purpose="deletion-replay")
 
 
 def _now_utc(clock: Clock) -> datetime:
@@ -504,7 +515,11 @@ class WorkflowService:
                     msg = "resource not found"
                     raise OwnedResourceNotFoundError(msg)
                 return ApprovedProbe(
-                    token=derive_learner_secret(token_record.id, self._learner_pepper),
+                    token=derive_learner_secret(
+                        token_record.id,
+                        token_record.derivation_nonce,
+                        self._learner_pepper,
+                    ),
                     expires_at=token_record.expires_at,
                     workflow=workflow,
                 )
@@ -538,12 +553,16 @@ class WorkflowService:
                 msg = "resource not found"
                 raise OwnedResourceNotFoundError(msg)
             token_id = uuid4()
-            token = derive_learner_secret(token_id, self._learner_pepper)
+            derivation_nonce = generate_derivation_nonce()
+            token = derive_learner_secret(
+                token_id, derivation_nonce, self._learner_pepper
+            )
             expires_at = _now_utc(self._clock) + timedelta(seconds=request.expires_in_seconds)
             session.add(
                 LearnerTokenRecord(
                     id=token_id,
                     workflow_id=workflow_id,
+                    derivation_nonce=derivation_nonce,
                     token_hash=hash_secret(token, self._learner_pepper, purpose="learner-token"),
                     expires_at=expires_at,
                 )
@@ -656,6 +675,7 @@ class WorkflowService:
     ) -> LearnerReceipt:
         """Atomically accept one answer, persist evidence, and reach teacher review."""
         key_hash = hash_payload(idempotency_key.encode())
+        request_fingerprint = _fingerprint(request.model_dump(mode="json"))
         async with self._sessions() as session, session.begin():
             token_record = await self._learner_token(session, token, for_update=True)
             existing_response = await session.scalar(
@@ -669,7 +689,11 @@ class WorkflowService:
                         LearnerReceiptRecord.learner_response_id == existing_response.id
                     )
                 )
-                if receipt is not None and receipt.idempotency_key_hash == key_hash:
+                if (
+                    receipt is not None
+                    and receipt.idempotency_key_hash == key_hash
+                    and receipt.request_hash == request_fingerprint
+                ):
                     return LearnerReceipt(receipt_id=receipt.id, accepted_at=receipt.accepted_at)
                 msg = "learner response already recorded"
                 raise ReplayConflictError(msg)
@@ -692,6 +716,7 @@ class WorkflowService:
             receipt = LearnerReceiptRecord(
                 learner_response_id=response.id,
                 idempotency_key_hash=key_hash,
+                request_hash=request_fingerprint,
                 accepted_at=accepted_at,
             )
             session.add(receipt)
@@ -859,11 +884,34 @@ class WorkflowService:
             msg = "idempotency key is required"
             raise ValueError(msg)
         async with self._sessions() as session, session.begin():
+            replay_hash = _deletion_replay_hash(
+                owner_secret=owner_secret,
+                workflow_id=workflow_id,
+                idempotency_key=idempotency_key,
+                owner_pepper=self._owner_pepper,
+            )
+            tombstone = await session.scalar(
+                select(DeletionAuditTombstoneRecord).where(
+                    DeletionAuditTombstoneRecord.workflow_id == workflow_id
+                )
+            )
+            if tombstone is not None:
+                if tombstone.replay_hash is not None and secrets_match(
+                    tombstone.replay_hash, replay_hash
+                ):
+                    return
+                msg = "resource not found"
+                raise OwnedResourceNotFoundError(msg)
             owner = await self._owner_for_secret(session, owner_secret)
             workflow = await get_owned_workflow(
                 session, workflow_id=workflow_id, owner_id=owner.id
             )
-            session.add(DeletionAuditTombstoneRecord(workflow_id=workflow_id))
+            session.add(
+                DeletionAuditTombstoneRecord(
+                    workflow_id=workflow_id,
+                    replay_hash=replay_hash,
+                )
+            )
             case_count = await session.scalar(
                 select(func.count(CaseRecord.id)).where(CaseRecord.owner_id == owner.id)
             )

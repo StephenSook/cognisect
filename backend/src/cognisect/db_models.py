@@ -14,6 +14,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -162,7 +163,7 @@ class CompiledProbeRecord(Base):
     chosen_a: Mapped[int] = mapped_column(Integer, nullable=False)
     chosen_b: Mapped[int] = mapped_column(Integer, nullable=False)
     correct_prediction: Mapped[int] = mapped_column(Integer, nullable=False)
-    specification_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    specification_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     registry_version: Mapped[str] = mapped_column(String(40), nullable=False)
     compiler_version: Mapped[str] = mapped_column(String(48), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -195,6 +196,12 @@ class LearnerTokenRecord(Base):
     """Hashed, expiring learner capability; raw tokens never enter persistence."""
 
     __tablename__ = "learner_tokens"
+    __table_args__ = (
+        CheckConstraint(
+            "octet_length(derivation_nonce) = 32",
+            name="ck_learner_token_derivation_nonce_length",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     workflow_id: Mapped[UUID] = mapped_column(
@@ -202,6 +209,7 @@ class LearnerTokenRecord(Base):
         ForeignKey("workflows.id", ondelete="CASCADE"),
         unique=True,
     )
+    derivation_nonce: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
@@ -249,6 +257,7 @@ class LearnerReceiptRecord(Base):
         unique=True,
     )
     idempotency_key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     accepted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -372,6 +381,7 @@ class DeletionAuditTombstoneRecord(Base):
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     workflow_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), unique=True, nullable=False)
+    replay_hash: Mapped[str | None] = mapped_column(String(64))
     deleted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

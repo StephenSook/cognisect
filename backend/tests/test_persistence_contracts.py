@@ -15,6 +15,7 @@ from cognisect.db_models import (
     Base,
     CaseRecord,
     CompiledProbeRecord,
+    DeletionAuditTombstoneRecord,
     GeneratedProposalRecord,
     IdempotencyRecord,
     LearnerReceiptRecord,
@@ -77,8 +78,23 @@ def test_schema_never_has_raw_owner_or_learner_secret_columns():
     token_columns = set(inspect(LearnerTokenRecord).columns.keys())
     assert "secret_hash" in owner_columns
     assert "token_hash" in token_columns
+    assert "derivation_nonce" in token_columns
     assert {"secret", "owner_secret", "raw_secret"}.isdisjoint(owner_columns)
     assert {"token", "learner_token", "raw_token"}.isdisjoint(token_columns)
+
+
+def test_replay_metadata_is_hash_only_and_probe_hashes_are_not_global_ids():
+    receipt_columns = set(inspect(LearnerReceiptRecord).columns.keys())
+    tombstone_columns = set(inspect(DeletionAuditTombstoneRecord).columns.keys())
+    probe_unique_columns = {
+        tuple(constraint.columns.keys())
+        for constraint in inspect(CompiledProbeRecord).local_table.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+
+    assert {"idempotency_key_hash", "request_hash"} <= receipt_columns
+    assert "replay_hash" in tombstone_columns
+    assert ("specification_hash",) not in probe_unique_columns
 
 
 def test_generated_and_teacher_edited_text_are_separate_records():

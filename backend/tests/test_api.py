@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import httpx
 import pytest
+from sqlalchemy import update
 
 from cognisect.api import OWNER_COOKIE_NAME, create_app
 from cognisect.config import Settings
 from cognisect.database import create_session_factory
+from cognisect.db_models import LearnerTokenRecord
 from cognisect.models import RuleInstanceV1, RuleMappingV1
+from cognisect.security import hash_secret
 from cognisect.services import AnalysisInput, AnalyzerResult
 
 EXPECTED_PATHS = {
@@ -89,6 +93,27 @@ def case_payload() -> dict[str, object]:
         "observed_work": "-3 - 5 = 2",
         "deidentified_attestation": True,
     }
+
+
+async def issue_learner_token(client: httpx.AsyncClient, suffix: str) -> str:
+    """Create, analyze, and approve one probe through the public API."""
+    created = await client.post(
+        "/v1/cases",
+        headers={"Idempotency-Key": f"{suffix}-create-key"},
+        json=case_payload(),
+    )
+    identifiers = created.json()
+    analyzed = await client.post(
+        f"/v1/cases/{identifiers['case_id']}/analysis",
+        headers={"Idempotency-Key": f"{suffix}-analysis-key"},
+        json={"expected_version": 0},
+    )
+    approved = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
+        headers={"Idempotency-Key": f"{suffix}-approval-key"},
+        json={"expected_version": analyzed.json()["version"], "approved": True},
+    )
+    return urlparse(approved.json()["response_url"]).path.rsplit("/", 1)[-1]
 
 
 @pytest.mark.postgres
@@ -242,7 +267,7 @@ async def test_production_owner_cookie_is_hardened(db_engine, db_session):
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
         public_app_url="https://cognisect.example",
-        openai_api_key="sk-test-not-real",
+        openai_api_key="sk-test-" + ("k" * 32),
     )
     production_app = create_app(
         settings=settings,
@@ -281,3 +306,85 @@ async def test_teacher_can_decline_probe_into_abstained_without_creating_token(c
     assert declined.json()["response_url"] is None
     assert declined.json()["expires_at"] is None
     assert declined.json()["workflow"]["state"] == "ABSTAINED"
+
+
+@pytest.mark.postgres
+async def test_delete_exact_replay_is_204_and_cross_owner_resource_stays_private(app):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as first, httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as second:
+        first_case = await first.post(
+            "/v1/cases", headers={"Idempotency-Key": "delete-first-create"}, json=case_payload()
+        )
+        second_case = await second.post(
+            "/v1/cases", headers={"Idempotency-Key": "delete-second-create"}, json=case_payload()
+        )
+        first_workflow_id = first_case.json()["workflow_id"]
+        second_workflow_id = second_case.json()["workflow_id"]
+
+        deleted = await first.delete(
+            f"/v1/workflows/{first_workflow_id}",
+            headers={"Idempotency-Key": "delete-exact-key"},
+        )
+        replayed = await first.delete(
+            f"/v1/workflows/{first_workflow_id}",
+            headers={"Idempotency-Key": "delete-exact-key"},
+        )
+        changed_key = await first.delete(
+            f"/v1/workflows/{first_workflow_id}",
+            headers={"Idempotency-Key": "delete-changed-key"},
+        )
+        cross_owner = await first.delete(
+            f"/v1/workflows/{second_workflow_id}",
+            headers={"Idempotency-Key": "delete-exact-key"},
+        )
+        second_still_exists = await second.get(f"/v1/workflows/{second_workflow_id}")
+
+    assert deleted.status_code == 204
+    assert replayed.status_code == 204
+    assert changed_key.status_code == 404
+    assert cross_owner.status_code == 404
+    assert second_still_exists.status_code == 200
+
+
+@pytest.mark.postgres
+async def test_every_learner_response_error_has_privacy_headers(client, db_engine):
+    not_found = await client.get("/v1/respond/not-a-valid-token")
+    unprocessable = await client.post(
+        "/v1/respond/not-a-valid-token",
+        headers={"Idempotency-Key": "privacy-invalid-key"},
+        json={"answer": "not-an-integer"},
+    )
+
+    conflict_token = await issue_learner_token(client, "privacy-conflict")
+    probe = await client.get(f"/v1/respond/{conflict_token}")
+    problem = probe.json()["problem"]
+    await client.post(
+        f"/v1/respond/{conflict_token}",
+        headers={"Idempotency-Key": "privacy-submit-first"},
+        json={"answer": problem["a"] - problem["b"]},
+    )
+    conflict = await client.post(
+        f"/v1/respond/{conflict_token}",
+        headers={"Idempotency-Key": "privacy-submit-second"},
+        json={"answer": 17},
+    )
+
+    expired_token = await issue_learner_token(client, "privacy-expired")
+    expired_hash = hash_secret(expired_token, "l" * 32, purpose="learner-token")
+    factory = create_session_factory(db_engine)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(LearnerTokenRecord)
+            .where(LearnerTokenRecord.token_hash == expired_hash)
+            .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+    gone = await client.get(f"/v1/respond/{expired_token}")
+
+    assert [not_found.status_code, conflict.status_code, gone.status_code] == [404, 409, 410]
+    assert unprocessable.status_code == 422
+    for response in (not_found, unprocessable, conflict, gone):
+        assert response.headers["referrer-policy"] == "no-referrer"
+        assert response.headers["cache-control"] == "no-store, private"

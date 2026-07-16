@@ -120,6 +120,8 @@ def create_app(  # noqa: C901, PLR0915
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         response = await call_next(request)
+        if request.url.path.startswith("/v1/respond/"):
+            _privacy_headers(response)
         route = request.scope.get("route")
         logger.info(
             "http_request",
@@ -241,18 +243,15 @@ def create_app(  # noqa: C901, PLR0915
         )
 
     @app.get("/v1/respond/{token}", response_model=LearnerProbeResponse)
-    async def get_learner_probe_route(token: str, response: Response) -> LearnerProbeResponse:
-        _privacy_headers(response)
+    async def get_learner_probe_route(token: str) -> LearnerProbeResponse:
         return await service.get_learner_probe(token)
 
     @app.post("/v1/respond/{token}", response_model=LearnerReceiptResponse)
     async def submit_learner_route(
         token: str,
         request: LearnerSubmitRequest,
-        response: Response,
         idempotency_key: IdempotencyKey,
     ) -> LearnerReceiptResponse:
-        _privacy_headers(response)
         receipt = await service.submit_learner_response(
             token=token,
             request=request,

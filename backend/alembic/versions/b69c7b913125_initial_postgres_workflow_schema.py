@@ -25,6 +25,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("workflow_id", sa.UUID(), nullable=False),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("replay_hash", sa.String(length=64), nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("workflow_id"),
     )
@@ -237,7 +238,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["workflow_id"], ["workflows.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("specification_hash"),
         sa.UniqueConstraint("workflow_id"),
     )
     op.create_table(
@@ -255,9 +255,14 @@ def upgrade() -> None:
         "learner_tokens",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("workflow_id", sa.UUID(), nullable=False),
+        sa.Column("derivation_nonce", sa.LargeBinary(length=32), nullable=False),
         sa.Column("token_hash", sa.String(length=64), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "octet_length(derivation_nonce) = 32",
+            name="ck_learner_token_derivation_nonce_length",
+        ),
         sa.ForeignKeyConstraint(["workflow_id"], ["workflows.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("token_hash"),
@@ -338,6 +343,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("learner_response_id", sa.UUID(), nullable=False),
         sa.Column("idempotency_key_hash", sa.String(length=64), nullable=False),
+        sa.Column("request_hash", sa.String(length=64), nullable=False),
         sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["learner_response_id"], ["learner_responses.id"], ondelete="CASCADE"

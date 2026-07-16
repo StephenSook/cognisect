@@ -13,14 +13,14 @@ from cognisect.api_models import (
     ReviewRequest,
 )
 from cognisect.config import Settings
-from cognisect.security import generate_secret, hash_secret
+from cognisect.security import generate_derivation_nonce, generate_secret, hash_secret
 
 VALID_ENV = {
     "database_url": "postgresql+psycopg://cognisect:password@db:5432/cognisect",
     "owner_secret_pepper": "o" * 32,
     "learner_token_pepper": "l" * 32,
     "public_app_url": "https://cognisect.example",
-    "openai_api_key": "sk-test-not-a-real-key",
+    "openai_api_key": "sk-test-" + ("k" * 32),
 }
 
 
@@ -45,6 +45,7 @@ def test_settings_reject_non_postgres_or_placeholder_security_values(field, valu
         ("public_app_url", "http://localhost:3000"),
         ("public_app_url", "https://127.0.0.1"),
         ("openai_api_key", ""),
+        ("openai_api_key", "short-production-key"),
     ],
 )
 def test_production_settings_reject_local_public_url_and_missing_key(field, value):
@@ -136,3 +137,16 @@ def test_generated_secrets_are_high_entropy_and_hashes_are_purpose_separated():
     learner_hash = hash_secret(secret, "p" * 32, purpose="learner-token")
     assert owner_hash != learner_hash
     assert secret not in owner_hash
+
+
+def test_learner_derivation_nonce_uses_32_bytes_from_the_csprng(monkeypatch):
+    calls: list[int] = []
+
+    def fake_token_bytes(length: int) -> bytes:
+        calls.append(length)
+        return b"n" * length
+
+    monkeypatch.setattr("cognisect.security.secrets.token_bytes", fake_token_bytes)
+
+    assert generate_derivation_nonce() == b"n" * 32
+    assert calls == [32]

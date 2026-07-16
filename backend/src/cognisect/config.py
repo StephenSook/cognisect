@@ -93,8 +93,10 @@ class Settings(BaseSettings):
             msg = "production PUBLIC_APP_URL must be non-local HTTPS"
             raise ValueError(msg)
         api_key = self.openai_api_key.get_secret_value().strip()
-        if not api_key or any(part in api_key.lower() for part in _PLACEHOLDER_PARTS):
-            msg = "OPENAI_API_KEY is required in production"
+        if len(api_key) < MIN_SECRET_LENGTH or any(
+            part in api_key.lower() for part in _PLACEHOLDER_PARTS
+        ):
+            msg = "OPENAI_API_KEY must be explicit and at least 32 characters in production"
             raise ValueError(msg)
         return self
 

@@ -169,6 +169,44 @@ async def test_analysis_persists_probe_and_predictions_before_any_token(
 
 
 @pytest.mark.postgres
+async def test_approval_uses_fresh_nonce_and_exact_replay_returns_same_capability(
+    service, db_engine, case_request
+):
+    created, workflow = await prepare_probe(service, case_request)
+    request = ProbeApprovalRequest(
+        expected_version=workflow.version,
+        approved=True,
+        expires_in_seconds=3600,
+    )
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=request,
+        idempotency_key="nonce-approval-key",
+    )
+    replayed = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=request,
+        idempotency_key="nonce-approval-key",
+    )
+
+    assert approved.token is not None
+    assert replayed.token == approved.token
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        token_record = await session.scalar(
+            select(LearnerTokenRecord).where(
+                LearnerTokenRecord.workflow_id == created.workflow_id
+            )
+        )
+    assert token_record is not None
+    assert len(token_record.derivation_nonce) == 32
+    assert token_record.token_hash != approved.token
+    assert approved.token not in repr(token_record)
+
+
+@pytest.mark.postgres
 async def test_no_separating_probe_transitions_to_abstained(
     db_engine, db_session, test_settings, case_request
 ):
@@ -263,6 +301,21 @@ async def test_get_does_not_consume_and_post_replay_rules_are_atomic(
         idempotency_key="submit-key",
     )
     assert replayed == receipt
+    with pytest.raises(ReplayConflictError):
+        await service.submit_learner_response(
+            token=approved.token,
+            request=LearnerSubmitRequest(answer=17),
+            idempotency_key="submit-key",
+        )
+    with pytest.raises(ReplayConflictError):
+        await service.submit_learner_response(
+            token=approved.token,
+            request=LearnerSubmitRequest(
+                answer=first.problem.a - first.problem.b,
+                rationale="A different canonical request payload.",
+            ),
+            idempotency_key="submit-key",
+        )
     with pytest.raises(ReplayConflictError):
         await service.submit_learner_response(
             token=approved.token,

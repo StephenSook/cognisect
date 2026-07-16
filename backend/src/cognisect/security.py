@@ -17,6 +17,11 @@ def generate_secret() -> str:
     return secrets.token_urlsafe(SECRET_BYTES)
 
 
+def generate_derivation_nonce() -> bytes:
+    """Generate a fresh 256-bit nonce for replayable capability derivation."""
+    return secrets.token_bytes(SECRET_BYTES)
+
+
 def hash_secret(secret: str, pepper: str, *, purpose: str) -> str:
     """Hash a capability with HMAC-SHA-256 and an explicit purpose domain."""
     if len(pepper) < MIN_PEPPER_LENGTH:
@@ -34,13 +39,18 @@ def hash_payload(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def derive_learner_secret(token_id: UUID, pepper: str) -> str:
-    """Derive a replayable 32-byte URL-safe capability from a random token UUID."""
+def derive_learner_secret(token_id: UUID, derivation_nonce: bytes, pepper: str) -> str:
+    """Derive a replayable capability from a token identity and fresh nonce."""
     if len(pepper) < MIN_PEPPER_LENGTH:
         msg = "pepper must be at least 32 characters"
         raise ValueError(msg)
+    if len(derivation_nonce) != SECRET_BYTES:
+        msg = "derivation nonce must be exactly 32 bytes"
+        raise ValueError(msg)
     digest = hmac.new(
-        pepper.encode(), b"cognisect:learner-token-secret:v1\x00" + token_id.bytes, hashlib.sha256
+        pepper.encode(),
+        b"cognisect:learner-token-secret:v2\x00" + token_id.bytes + derivation_nonce,
+        hashlib.sha256,
     ).digest()
     return urlsafe_b64encode(digest).rstrip(b"=").decode()
 

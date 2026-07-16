@@ -30,6 +30,21 @@ Apply the schema and run the API:
 The application factory deliberately has no built-in analyzer fake. Tests inject
 their fake explicitly; a production analyzer must be supplied at construction.
 
+## Capability threat model
+
+Teacher and learner URLs carry bearer capabilities and must be treated as
+secrets. Learner capabilities are HMAC-derived from a purpose-specific pepper,
+the token identifier, and a fresh 32-byte CSPRNG nonce. Postgres stores the
+non-secret nonce and only the HMAC verifier of the resulting raw capability;
+the raw capability is returned in memory and can be reconstructed for an exact
+idempotent approval replay without being persisted.
+
+A database-only compromise does not reveal bearer capabilities while the
+pepper remains separate. A combined database and pepper compromise can derive
+them, so incident response must rotate the pepper and revoke outstanding links.
+Learner responses use `no-store, private` and `no-referrer` headers to reduce
+browser and referrer leakage.
+
 ## Verification
 
 The integration tests connect to the Compose service on port `54329` and never
