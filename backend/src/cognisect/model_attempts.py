@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -17,10 +19,11 @@ from cognisect.db_models import (
     ModelCallRecord,
     utc_now,
 )
-from cognisect.services import ModelCallTelemetry
+from cognisect.services import AnalysisInProgressError, ModelCallTelemetry
 
 AttemptPurpose = Literal["luna", "terra", "sol"]
 AttemptAction = Literal["dispatch", "recovered", "stale"]
+ATTEMPT_GRACE_SECONDS = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,9 +146,20 @@ class PostgresAttemptJournal:
 
     persists_attempts = True
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        *,
+        active_window_seconds: float = 35.0,
+        clock: Callable[[], datetime] = utc_now,
+    ) -> None:
         """Bind the journal to short-lived Postgres sessions."""
+        if active_window_seconds <= 0:
+            msg = "active attempt window must be positive"
+            raise ValueError(msg)
         self._sessions = sessions
+        self._active_window = timedelta(seconds=active_window_seconds)
+        self._clock = clock
 
     async def plan(self, plan: ModelAttemptPlan) -> AttemptDecision:
         """Insert intent or recover an exact immutable prior attempt."""
@@ -206,6 +220,12 @@ class PostgresAttemptJournal:
                     client_request_id=record.client_request_id,
                     telemetry=_telemetry(record),
                 )
+            if (
+                record.status == "planned"
+                and record.created_at >= self._clock() - self._active_window
+            ):
+                msg = "analysis provider attempt is still active"
+                raise AnalysisInProgressError(msg)
             artifact = await session.scalar(
                 select(AnalysisStepResultRecord).where(
                     AnalysisStepResultRecord.workflow_id == plan.workflow_id,

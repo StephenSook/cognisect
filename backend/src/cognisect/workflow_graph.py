@@ -12,9 +12,10 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, StateSnapshot, interrupt
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from cognisect.db_models import WorkflowRecord
 from cognisect.lifecycle_lock import acquire_lifecycle_lock
 
 _CHECKPOINT_DELETE_STATEMENTS: Final = (
@@ -130,6 +131,18 @@ class WorkflowGraphRuntime:
     def _snapshot_result(snapshot: StateSnapshot) -> dict[str, object]:
         return cast("dict[str, object]", dict(snapshot.values))
 
+    @staticmethod
+    async def _workflow_exists(
+        session: AsyncSession,
+        thread_id: UUID,
+        *,
+        workflow_id: UUID | None = None,
+    ) -> bool:
+        statement = select(WorkflowRecord.id).where(WorkflowRecord.thread_id == thread_id)
+        if workflow_id is not None:
+            statement = statement.where(WorkflowRecord.id == workflow_id)
+        return await session.scalar(statement) is not None
+
     async def start_probe_interrupt(
         self,
         workflow_id: UUID,
@@ -141,6 +154,12 @@ class WorkflowGraphRuntime:
         if not _lock_held:
             async with self._session_factory() as session, session.begin():
                 await acquire_lifecycle_lock(session, thread_id)
+                if not await self._workflow_exists(
+                    session,
+                    thread_id,
+                    workflow_id=workflow_id,
+                ):
+                    return {}
                 return await self.start_probe_interrupt(
                     workflow_id,
                     thread_id,
@@ -176,6 +195,8 @@ class WorkflowGraphRuntime:
         if not _lock_held:
             async with self._session_factory() as session, session.begin():
                 await acquire_lifecycle_lock(session, thread_id)
+                if not await self._workflow_exists(session, thread_id):
+                    return {}
                 return await self.resume_probe(
                     thread_id,
                     approved=approved,
@@ -209,6 +230,12 @@ class WorkflowGraphRuntime:
         if not _lock_held:
             async with self._session_factory() as session, session.begin():
                 await acquire_lifecycle_lock(session, thread_id)
+                if not await self._workflow_exists(
+                    session,
+                    thread_id,
+                    workflow_id=workflow_id,
+                ):
+                    return {}
                 return await self.resume_after_response(
                     workflow_id,
                     thread_id,
@@ -245,6 +272,8 @@ class WorkflowGraphRuntime:
         if not _lock_held:
             async with self._session_factory() as session, session.begin():
                 await acquire_lifecycle_lock(session, thread_id)
+                if not await self._workflow_exists(session, thread_id):
+                    return {}
                 return await self.resume_review(
                     thread_id,
                     decision=decision,

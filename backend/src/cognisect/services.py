@@ -74,6 +74,10 @@ class ReplayConflictError(ServiceError):
     """A consumed capability or idempotency-key conflict."""
 
 
+class AnalysisInProgressError(ReplayConflictError):
+    """A matching analysis attempt is still inside its bounded provider window."""
+
+
 class ExpiredLearnerTokenError(ServiceError):
     """An otherwise valid learner capability has expired."""
 
@@ -422,10 +426,27 @@ class WorkflowService:
                     msg = "resource not found"
                     raise OwnedResourceNotFoundError(msg)
                 case, workflow = row
-                if not (
+                if (
                     workflow.state == WorkflowState.ANALYZING
                     and workflow.version == expected_version + 1
                 ):
+                    started_event = await session.scalar(
+                        select(AuditEventRecord).where(
+                            AuditEventRecord.workflow_id == workflow.id,
+                            AuditEventRecord.sequence == expected_version + 1,
+                            AuditEventRecord.to_state == WorkflowState.ANALYZING,
+                        )
+                    )
+                    expected_event_hash = hash_payload(
+                        f"{idempotency_key}:analysis-started".encode()
+                    )
+                    if (
+                        started_event is None
+                        or started_event.event_key_hash != expected_event_hash
+                    ):
+                        msg = "analysis is already in progress"
+                        raise ReplayConflictError(msg)
+                else:
                     await transition_workflow(
                         session,
                         workflow_id=workflow.id,
@@ -476,9 +497,37 @@ class WorkflowService:
                 )
             else:
                 compiler_result = None
+        except AnalysisInProgressError:
+            raise
         except Exception:  # noqa: BLE001 - analyzer/provider boundary is intentionally generic.
             async with self._sessions() as session, session.begin():
                 owner = await self._owner_for_secret(session, owner_secret)
+                workflow = await session.scalar(
+                    select(WorkflowRecord)
+                    .where(
+                        WorkflowRecord.id == analysis_input.workflow_id,
+                        WorkflowRecord.owner_id == owner.id,
+                    )
+                    .with_for_update()
+                )
+                if workflow is None:
+                    msg = "resource not found"
+                    raise OwnedResourceNotFoundError(msg) from None
+                replay = await self._idempotency_replay(
+                    session,
+                    owner_id=owner.id,
+                    scope=scope,
+                    idempotency_key=idempotency_key,
+                    request_fingerprint=request_fingerprint,
+                )
+                if replay is not None:
+                    return cast("WorkflowRecord", workflow)
+                if not (
+                    workflow.state == WorkflowState.ANALYZING
+                    and workflow.version == expected_version + 1
+                ):
+                    msg = "analysis completion conflicts with persisted state"
+                    raise ReplayConflictError(msg) from None
                 failed = await transition_workflow(
                     session,
                     workflow_id=analysis_input.workflow_id,
@@ -499,9 +548,32 @@ class WorkflowService:
             raise AnalyzerExecutionError(msg) from None
         async with self._sessions() as session, session.begin():
             owner = await self._owner_for_secret(session, owner_secret)
-            workflow = await get_owned_workflow(
-                session, workflow_id=analysis_input.workflow_id, owner_id=owner.id
+            workflow = await session.scalar(
+                select(WorkflowRecord)
+                .where(
+                    WorkflowRecord.id == analysis_input.workflow_id,
+                    WorkflowRecord.owner_id == owner.id,
+                )
+                .with_for_update()
             )
+            if workflow is None:
+                msg = "resource not found"
+                raise OwnedResourceNotFoundError(msg)
+            replay = await self._idempotency_replay(
+                session,
+                owner_id=owner.id,
+                scope=scope,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+            )
+            if replay is not None:
+                return cast("WorkflowRecord", workflow)
+            if not (
+                workflow.state == WorkflowState.ANALYZING
+                and workflow.version == expected_version + 1
+            ):
+                msg = "analysis completion conflicts with persisted state"
+                raise ReplayConflictError(msg)
             if analyzer_result.model_calls and not analyzer_result.calls_persisted:
                 for attempt_ordinal, call in enumerate(analyzer_result.model_calls, start=1):
                     session.add(

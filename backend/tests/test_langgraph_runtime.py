@@ -17,7 +17,7 @@ from sqlalchemy import text
 from cognisect.api_models import CreateCaseRequest
 from cognisect.config import Settings
 from cognisect.database import create_session_factory
-from cognisect.db_models import CaseRecord, WorkflowRecord
+from cognisect.db_models import CaseRecord, OwnerRecord, WorkflowRecord
 from cognisect.services import RetentionService, WorkflowService
 from cognisect.workflow_graph import (
     WorkflowGraphRuntime,
@@ -44,6 +44,32 @@ def test_checkpoint_serializer_disables_pickle_and_arbitrary_module_loading() ->
     assert serializer.pickle_fallback is False
     assert serializer._allowed_msgpack_modules is None
     assert serializer._allowed_json_modules is None
+
+
+async def persist_graph_workflow(factory, workflow_id, thread_id) -> None:
+    """Create the application lifecycle row required before any saver command."""
+    async with factory() as session, session.begin():
+        owner = OwnerRecord(secret_hash=uuid4().hex * 2)
+        session.add(owner)
+        await session.flush()
+        case = CaseRecord(
+            owner_id=owner.id,
+            source_tier="custom",
+            original_a=-3,
+            original_b=5,
+            observed_work="-3 - 5 = 2",
+            deidentified_attestation=True,
+        )
+        session.add(case)
+        await session.flush()
+        session.add(
+            WorkflowRecord(
+                id=workflow_id,
+                case_id=case.id,
+                owner_id=owner.id,
+                thread_id=thread_id,
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -117,6 +143,7 @@ async def test_real_interrupts_resume_across_fresh_checkpointer_processes(db_eng
 
     connection_url = checkpoint_connection_url(TEST_DATABASE_URL)
     factory = create_session_factory(db_engine)
+    await persist_graph_workflow(factory, workflow_id, thread_id)
     async with AsyncPostgresSaver.from_conn_string(
         connection_url, serde=secure_checkpoint_serializer()
     ) as first_saver:
@@ -161,9 +188,9 @@ async def test_duplicate_response_resume_does_not_repeat_update_action(
     async def update_action(value):
         updates.append(str(value))
 
-    runtime = WorkflowGraphRuntime(
-        create_session_factory(db_engine), checkpointer, update_action=update_action
-    )
+    factory = create_session_factory(db_engine)
+    await persist_graph_workflow(factory, workflow_id, thread_id)
+    runtime = WorkflowGraphRuntime(factory, checkpointer, update_action=update_action)
     await runtime.resume_after_response(workflow_id, thread_id)
     duplicate = await runtime.resume_after_response(workflow_id, thread_id)
 
@@ -185,11 +212,9 @@ async def test_pending_update_task_recovers_instead_of_becoming_completed_noop(
         if attempts == 1:
             raise RuntimeError("simulated crash")
 
-    runtime = WorkflowGraphRuntime(
-        create_session_factory(db_engine),
-        checkpointer,
-        update_action=crash_once,
-    )
+    factory = create_session_factory(db_engine)
+    await persist_graph_workflow(factory, workflow_id, thread_id)
+    runtime = WorkflowGraphRuntime(factory, checkpointer, update_action=crash_once)
     with pytest.raises(RuntimeError, match="simulated crash"):
         await runtime.resume_after_response(workflow_id, thread_id)
     interrupted = await runtime.get_state(thread_id)
@@ -207,8 +232,10 @@ async def test_duplicate_start_approval_and_review_are_checkpoint_noops(
 ) -> None:
     workflow_id = uuid4()
     thread_id = uuid4()
+    factory = create_session_factory(db_engine)
+    await persist_graph_workflow(factory, workflow_id, thread_id)
     runtime = WorkflowGraphRuntime(
-        create_session_factory(db_engine),
+        factory,
         checkpointer,
         update_action=lambda _workflow_id: None,
     )
@@ -265,8 +292,10 @@ async def test_checkpoint_state_is_content_minimal_and_thread_purge_removes_all_
 ) -> None:
     workflow_id = uuid4()
     thread_id = uuid4()
+    factory = create_session_factory(db_engine)
+    await persist_graph_workflow(factory, workflow_id, thread_id)
     runtime = WorkflowGraphRuntime(
-        create_session_factory(db_engine),
+        factory,
         checkpointer,
         update_action=lambda _workflow_id: None,
     )
@@ -378,6 +407,59 @@ async def test_deletion_waits_for_inflight_graph_then_purges_every_checkpoint(
 
     async with factory() as session:
         assert await session.get(WorkflowRecord, created.workflow_id) is None
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            count = await session.scalar(
+                text(f"SELECT count(*) FROM {table} WHERE thread_id = :thread_id"),
+                {"thread_id": str(thread_id)},
+            )
+            assert count == 0
+
+
+@pytest.mark.postgres
+async def test_graph_commands_after_committed_deletion_never_recreate_checkpoints(
+    checkpointer, db_engine
+) -> None:
+    factory = create_session_factory(db_engine)
+    settings = Settings(
+        app_env="test",
+        database_url=TEST_DATABASE_URL,
+        owner_secret_pepper="o" * 32,
+        learner_token_pepper="l" * 32,
+        public_app_url="http://localhost:3000",
+        openai_api_key="",
+    )
+    service = WorkflowService(factory, settings, analyzer=None)
+    created = await service.create_case(
+        CreateCaseRequest(
+            source_tier="custom",
+            problem={"a": -3, "b": 5},
+            observed_work="-3 - 5 = 2",
+            deidentified_attestation=True,
+        ),
+        idempotency_key="post-delete-create",
+    )
+    runtime = WorkflowGraphRuntime(
+        factory,
+        checkpointer,
+        update_action=lambda _workflow_id: None,
+    )
+    service.attach_graph_runtime(runtime)
+    async with factory() as session:
+        workflow = await session.get(WorkflowRecord, created.workflow_id)
+        assert workflow is not None
+        thread_id = workflow.thread_id
+    await service.delete_workflow(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        idempotency_key="post-delete-delete",
+    )
+
+    assert await runtime.start_probe_interrupt(created.workflow_id, thread_id) == {}
+    assert await runtime.resume_probe(thread_id, approved=True) == {}
+    assert await runtime.resume_after_response(created.workflow_id, thread_id) == {}
+    assert await runtime.resume_review(thread_id, decision="approved") == {}
+
+    async with factory() as session:
         for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
             count = await session.scalar(
                 text(f"SELECT count(*) FROM {table} WHERE thread_id = :thread_id"),

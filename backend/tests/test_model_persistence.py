@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -13,7 +15,17 @@ import cognisect.api as api_module
 from cognisect.api_models import CreateCaseRequest
 from cognisect.config import Settings
 from cognisect.database import create_session_factory
-from cognisect.db_models import AnalysisStepResultRecord, ModelCallRecord, WorkflowRecord
+from cognisect.db_models import (
+    AcceptedHypothesisRecord,
+    AnalysisStepResultRecord,
+    AuditEventRecord,
+    CompiledProbeRecord,
+    GeneratedProposalRecord,
+    IdempotencyRecord,
+    ModelCallRecord,
+    ProbePredictionRecord,
+    WorkflowRecord,
+)
 from cognisect.model_analyzer import ResponsesAnalyzer
 from cognisect.model_attempts import PostgresAttemptJournal
 from cognisect.model_policy import TerraAnalysisV1
@@ -23,6 +35,7 @@ from cognisect.services import (
     AnalysisInput,
     AnalyzerResult,
     ModelCallTelemetry,
+    ReplayConflictError,
     WorkflowService,
 )
 from cognisect.workflow import WorkflowState
@@ -221,6 +234,278 @@ class OneTerraClient:
         self.responses = OneTerraResponses()
 
 
+class BlockingRouteResponses(OneTerraResponses):
+    def __init__(self, started: asyncio.Event, release: asyncio.Event) -> None:
+        super().__init__()
+        self.started = started
+        self.release = release
+        self.models: list[str] = []
+
+    async def create(self, **kwargs):
+        model = str(kwargs["model"])
+        self.models.append(model)
+        if model == "gpt-5.6-luna":
+            self.calls += 1
+            output_text = (
+                '{"schema_version":"normalized_evidence.v1","segments":'
+                '[{"ref":"observed_work","text":"deidentified evidence"}]}'
+            )
+            return SimpleNamespace(
+                id="resp_concurrent_luna",
+                model=model,
+                output=[
+                    SimpleNamespace(
+                        type="message",
+                        content=[SimpleNamespace(type="output_text", text=output_text)],
+                    )
+                ],
+                usage=SimpleNamespace(
+                    input_tokens=100,
+                    output_tokens=20,
+                    input_tokens_details=SimpleNamespace(
+                        cached_tokens=0, cache_write_tokens=0
+                    ),
+                    output_tokens_details=SimpleNamespace(reasoning_tokens=0),
+                ),
+            )
+        self.started.set()
+        await self.release.wait()
+        return await super().create(**kwargs)
+
+
+class BlockingRouteClient:
+    def __init__(self, started: asyncio.Event, release: asyncio.Event) -> None:
+        self.responses = BlockingRouteResponses(started, release)
+
+
+class PauseFirstCompletedAnalyzer:
+    def __init__(
+        self,
+        analyzer: ResponsesAnalyzer,
+        completed: asyncio.Event,
+        release: asyncio.Event,
+    ) -> None:
+        self.analyzer = analyzer
+        self.completed = completed
+        self.release = release
+        self.calls = 0
+
+    async def analyze(self, case: AnalysisInput) -> AnalyzerResult:
+        self.calls += 1
+        result = await self.analyzer.analyze(case)
+        if self.calls == 1:
+            self.completed.set()
+            await self.release.wait()
+        return result
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    ("source_tier", "expected_provider_calls"),
+    [("educator_authored", 1), ("custom", 2)],
+)
+async def test_concurrent_analysis_keys_cannot_hijack_active_route_or_duplicate_completion(
+    db_engine,
+    db_session,
+    source_tier,
+    expected_provider_calls,
+) -> None:
+    del db_session
+    settings = _settings(app_env="test", public_app_url="http://localhost:3000")
+    sessions = create_session_factory(db_engine)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    provider = BlockingRouteClient(started, release)
+    service = WorkflowService(
+        sessions,
+        settings,
+        analyzer=ResponsesAnalyzer(
+            settings,
+            client=provider,
+            journal=PostgresAttemptJournal(sessions),
+        ),
+    )
+    created = await service.create_case(
+        CreateCaseRequest(
+            source_tier=source_tier,
+            problem={"a": -3, "b": 5},
+            observed_work="deidentified evidence",
+            deidentified_attestation=source_tier == "custom",
+        ),
+        idempotency_key=f"concurrent-{source_tier}-create",
+    )
+    first = asyncio.create_task(
+        service.analyze_case(
+            owner_secret=created.owner_secret,
+            case_id=created.case_id,
+            expected_version=0,
+            idempotency_key="concurrent-original-analysis",
+        )
+    )
+    await started.wait()
+
+    with pytest.raises(ReplayConflictError):
+        await service.analyze_case(
+            owner_secret=created.owner_secret,
+            case_id=created.case_id,
+            expected_version=0,
+            idempotency_key="concurrent-different-analysis",
+        )
+    with pytest.raises(ReplayConflictError):
+        await service.analyze_case(
+            owner_secret=created.owner_secret,
+            case_id=created.case_id,
+            expected_version=0,
+            idempotency_key="concurrent-original-analysis",
+        )
+    during = await service.get_workflow(created.owner_secret, created.workflow_id)
+    assert during.state == WorkflowState.ANALYZING
+    assert not first.done()
+
+    release.set()
+    completed = await first
+    replayed = await service.analyze_case(
+        owner_secret=created.owner_secret,
+        case_id=created.case_id,
+        expected_version=0,
+        idempotency_key="concurrent-original-analysis",
+    )
+
+    assert completed.state == replayed.state == WorkflowState.PROBE_READY
+    assert provider.responses.calls == expected_provider_calls
+    async with sessions() as session:
+        assert await session.scalar(select(func.count(ModelCallRecord.id))) == (
+            expected_provider_calls
+        )
+        assert await session.scalar(select(func.count(AnalysisStepResultRecord.id))) == (
+            expected_provider_calls
+        )
+        assert await session.scalar(select(func.count(AcceptedHypothesisRecord.id))) == 2
+        assert await session.scalar(select(func.count(CompiledProbeRecord.id))) == 1
+        assert await session.scalar(select(func.count(ProbePredictionRecord.id))) == 2
+        assert await session.scalar(select(func.count(GeneratedProposalRecord.id))) == 1
+        assert await session.scalar(select(func.count(IdempotencyRecord.id))) == 2
+        assert await session.scalar(select(func.count(AuditEventRecord.id))) == 2
+
+
+@pytest.mark.postgres
+async def test_identical_recovery_after_finalized_attempt_serializes_one_aggregate(
+    db_engine, db_session
+) -> None:
+    del db_session
+    settings = _settings(app_env="test", public_app_url="http://localhost:3000")
+    sessions = create_session_factory(db_engine)
+    provider = OneTerraClient()
+    finalized = asyncio.Event()
+    release = asyncio.Event()
+    analyzer = PauseFirstCompletedAnalyzer(
+        ResponsesAnalyzer(
+            settings,
+            client=provider,
+            journal=PostgresAttemptJournal(sessions),
+        ),
+        finalized,
+        release,
+    )
+    service = WorkflowService(sessions, settings, analyzer=analyzer)
+    created = await service.create_case(
+        CreateCaseRequest(
+            source_tier="educator_authored",
+            problem={"a": -3, "b": 5},
+            observed_work="deidentified evidence",
+            deidentified_attestation=False,
+        ),
+        idempotency_key="completion-lock-create",
+    )
+    first = asyncio.create_task(
+        service.analyze_case(
+            owner_secret=created.owner_secret,
+            case_id=created.case_id,
+            expected_version=0,
+            idempotency_key="completion-lock-analysis",
+        )
+    )
+    await finalized.wait()
+    second = await service.analyze_case(
+        owner_secret=created.owner_secret,
+        case_id=created.case_id,
+        expected_version=0,
+        idempotency_key="completion-lock-analysis",
+    )
+    release.set()
+    original = await first
+
+    assert original.state == second.state == WorkflowState.PROBE_READY
+    assert provider.responses.calls == 1
+    async with sessions() as session:
+        assert await session.scalar(select(func.count(ModelCallRecord.id))) == 1
+        assert await session.scalar(select(func.count(AnalysisStepResultRecord.id))) == 1
+        assert await session.scalar(select(func.count(AcceptedHypothesisRecord.id))) == 2
+        assert await session.scalar(select(func.count(CompiledProbeRecord.id))) == 1
+        assert await session.scalar(select(func.count(ProbePredictionRecord.id))) == 2
+        assert await session.scalar(select(func.count(GeneratedProposalRecord.id))) == 1
+        assert await session.scalar(select(func.count(AuditEventRecord.id))) == 2
+
+
+@pytest.mark.postgres
+async def test_stale_planned_attempt_still_fails_closed_without_redispatch(
+    db_engine, db_session
+) -> None:
+    del db_session
+    settings = _settings(app_env="test", public_app_url="http://localhost:3000")
+    sessions = create_session_factory(db_engine)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    provider = BlockingRouteClient(started, release)
+    service = WorkflowService(
+        sessions,
+        settings,
+        analyzer=ResponsesAnalyzer(
+            settings,
+            client=provider,
+            journal=PostgresAttemptJournal(sessions),
+        ),
+    )
+    created = await service.create_case(
+        CreateCaseRequest(
+            source_tier="educator_authored",
+            problem={"a": -3, "b": 5},
+            observed_work="deidentified evidence",
+            deidentified_attestation=False,
+        ),
+        idempotency_key="stale-window-create",
+    )
+    original = asyncio.create_task(
+        service.analyze_case(
+            owner_secret=created.owner_secret,
+            case_id=created.case_id,
+            expected_version=0,
+            idempotency_key="stale-window-analysis",
+        )
+    )
+    await started.wait()
+    async with sessions() as session, session.begin():
+        planned = await session.scalar(select(ModelCallRecord))
+        assert planned is not None
+        planned.created_at = datetime.now(UTC) - timedelta(seconds=36)
+
+    recovered = await service.analyze_case(
+        owner_secret=created.owner_secret,
+        case_id=created.case_id,
+        expected_version=0,
+        idempotency_key="stale-window-analysis",
+    )
+    original.cancel()
+    await asyncio.gather(original, return_exceptions=True)
+
+    assert recovered.state == WorkflowState.ABSTAINED
+    assert provider.responses.models == ["gpt-5.6-terra"]
+    async with sessions() as session:
+        assert await session.scalar(select(func.count(ModelCallRecord.id))) == 1
+        assert await session.scalar(select(func.count(AnalysisStepResultRecord.id))) == 0
+        assert await session.scalar(select(func.count(AuditEventRecord.id))) == 2
+
+
 @pytest.mark.postgres
 async def test_analysis_recovers_finalized_artifact_after_process_crash_without_redispatch(
     db_engine, db_session
@@ -250,7 +535,7 @@ async def test_analysis_recovers_finalized_artifact_after_process_crash_without_
             owner_id=workflow.owner_id,
             expected_version=0,
             requested_state=WorkflowState.ANALYZING,
-            event_key="crash-analysis-started",
+            event_key="crash-analysis:analysis-started",
         )
     discarded = await analyzer.analyze(
         AnalysisInput(

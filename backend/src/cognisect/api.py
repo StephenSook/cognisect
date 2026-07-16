@@ -38,7 +38,7 @@ from cognisect.database import create_engine, create_session_factory
 from cognisect.db_models import SCHEMA_VERSION
 from cognisect.interpreter import COMPILER_VERSION, REGISTRY_VERSION
 from cognisect.model_analyzer import ResponsesAnalyzer
-from cognisect.model_attempts import PostgresAttemptJournal
+from cognisect.model_attempts import ATTEMPT_GRACE_SECONDS, PostgresAttemptJournal
 from cognisect.repositories import (
     ConcurrentWriteError,
     OwnedResourceNotFoundError,
@@ -405,7 +405,12 @@ def build_app() -> FastAPI:
     analyzer = (
         ResponsesAnalyzer(
             settings,
-            journal=PostgresAttemptJournal(sessions),
+            journal=PostgresAttemptJournal(
+                sessions,
+                active_window_seconds=(
+                    settings.model_timeout_seconds + ATTEMPT_GRACE_SECONDS
+                ),
+            ),
         )
         if is_production(settings)
         else None
