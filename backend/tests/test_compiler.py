@@ -15,6 +15,7 @@ from hypothesis import strategies as st
 from cognisect.compiler import (
     CompiledProbe,
     CompilerAbstention,
+    _rank_key,
     compile_accepted_probe,
     compile_probe,
     reproduce_probe_hash,
@@ -86,6 +87,114 @@ def _independent_best_probe(
             )
             ranked.append((rank_key, (a, b)))
     return min(ranked)[1]
+
+
+def _ranking_fixture(
+    predictions_by_problem: dict[tuple[int, int], tuple[int, int, int, int]],
+) -> tuple[AcceptedHypothesis, ...]:
+    instances = _mapping(ALL_TEMPLATE_IDS[:4]).hypotheses
+    tables = [[0] * 625 for _ in instances]
+    for (a, b), predictions in predictions_by_problem.items():
+        index = (a + 12) * 25 + (b + 12)
+        for table, prediction in zip(tables, predictions, strict=True):
+            table[index] = prediction
+    return tuple(
+        AcceptedHypothesis(
+            template_id=instance.template_id,
+            evidence_refs=tuple(instance.evidence_refs),
+            description=instance.description,
+            rank=instance.rank,
+            truth_table_hash=canonical_truth_table_hash(tuple(table)),
+            truth_table=tuple(table),
+        )
+        for instance, table in zip(instances, tables, strict=True)
+    )
+
+
+def _chosen_by_rank(
+    hypotheses: tuple[AcceptedHypothesis, ...],
+    first: tuple[int, int],
+    second: tuple[int, int],
+) -> tuple[int, int]:
+    return min((first, second), key=lambda problem: _rank_key(hypotheses, *problem))
+
+
+def test_distinct_output_count_independently_decides_winner() -> None:
+    winner = (2, 2)
+    loser = (0, 1)
+    hypotheses = _ranking_fixture(
+        {
+            winner: (0, 0, 1, 2),
+            loser: (0, 1, 0, 1),
+        }
+    )
+
+    assert _chosen_by_rank(hypotheses, loser, winner) == winner
+
+
+def test_top_two_separation_independently_decides_winner() -> None:
+    winner = (2, 2)
+    loser = (0, 1)
+    hypotheses = _ranking_fixture(
+        {
+            winner: (0, 1, 0, 1),
+            loser: (0, 0, 1, 1),
+        }
+    )
+
+    assert _chosen_by_rank(hypotheses, winner, loser) == winner
+
+
+def test_distinguished_hypothesis_pairs_independently_decide_winner() -> None:
+    winner = (2, 2)
+    loser = (0, 1)
+    hypotheses = _ranking_fixture(
+        {
+            winner: (0, 1, 0, 1),
+            loser: (0, 1, 1, 1),
+        }
+    )
+
+    assert _chosen_by_rank(hypotheses, winner, loser) == winner
+
+
+def test_operand_magnitude_independently_decides_winner() -> None:
+    winner = (2, 0)
+    loser = (2, 1)
+    hypotheses = _ranking_fixture(
+        {
+            winner: (0, 1, 0, 1),
+            loser: (0, 1, 0, 1),
+        }
+    )
+
+    assert _chosen_by_rank(hypotheses, winner, loser) == winner
+
+
+def test_correct_result_magnitude_independently_decides_winner() -> None:
+    winner = (1, 1)
+    loser = (-2, 0)
+    hypotheses = _ranking_fixture(
+        {
+            winner: (0, 1, 0, 1),
+            loser: (0, 1, 0, 1),
+        }
+    )
+
+    assert _chosen_by_rank(hypotheses, winner, loser) == winner
+
+
+def test_stable_operand_order_independently_decides_winner() -> None:
+    winner = (-1, 0)
+    loser = (0, -1)
+    hypotheses = _ranking_fixture(
+        {
+            winner: (0, 1, 0, 1),
+            loser: (0, 1, 0, 1),
+        }
+    )
+
+    assert _chosen_by_rank(hypotheses, loser, winner) == winner
 
 
 def test_compiler_uses_the_exact_rank_tuple_and_excludes_original_problem() -> None:

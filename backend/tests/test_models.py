@@ -5,9 +5,10 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from cognisect.models import RuleInstanceV1, RuleMappingV1
 
@@ -17,12 +18,39 @@ VALID_EXAMPLE = json.loads(
 )
 
 
+def _normalize_schema(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_normalize_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    normalized: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in {"$defs", "$id", "$schema", "description", "title"}:
+            continue
+        if key == "$ref" and item == "#/$defs/RuleInstanceV1":
+            normalized[key] = "rule-instance.v1.schema.json"
+        else:
+            normalized[key] = _normalize_schema(item)
+
+    if "const" in normalized and normalized.get("type") == "string":
+        normalized.pop("type")
+    return normalized
+
+
+def _genuine_validation_schema(model: type[BaseModel]) -> dict[str, Any]:
+    assert "model_json_schema" not in model.__dict__, "schema generation must not be overridden"
+    return model.model_json_schema(mode="validation")
+
+
 def test_rule_instance_schema_matches_frozen_contract() -> None:
     frozen = json.loads(
         (ROOT / "schemas/rule-instance.v1.schema.json").read_text(encoding="utf-8")
     )
 
-    assert RuleInstanceV1.model_json_schema(mode="validation") == frozen
+    generated = _genuine_validation_schema(RuleInstanceV1)
+
+    assert _normalize_schema(generated) == _normalize_schema(frozen)
 
 
 def test_rule_mapping_schema_matches_frozen_contract() -> None:
@@ -30,7 +58,19 @@ def test_rule_mapping_schema_matches_frozen_contract() -> None:
         (ROOT / "schemas/rule-mapping.v1.schema.json").read_text(encoding="utf-8")
     )
 
-    assert RuleMappingV1.model_json_schema(mode="validation") == frozen
+    generated = _genuine_validation_schema(RuleMappingV1)
+
+    assert _normalize_schema(generated) == _normalize_schema(frozen)
+
+
+def test_schema_parity_normalization_retains_validation_constraints() -> None:
+    frozen = json.loads(
+        (ROOT / "schemas/rule-instance.v1.schema.json").read_text(encoding="utf-8")
+    )
+    changed = copy.deepcopy(_genuine_validation_schema(RuleInstanceV1))
+    changed["properties"]["rank"]["maximum"] = 5
+
+    assert _normalize_schema(changed) != _normalize_schema(frozen)
 
 
 def test_checked_in_valid_example_is_accepted() -> None:

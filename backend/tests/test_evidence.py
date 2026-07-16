@@ -15,6 +15,7 @@ from cognisect.compiler import (
     CompilerAbstention,
     ProbeHypothesis,
     SignedProblem,
+    compile_accepted_probe,
 )
 from cognisect.evidence import (
     EvidenceUpdate,
@@ -23,7 +24,12 @@ from cognisect.evidence import (
     update_evidence,
     update_evidence_from_json,
 )
-from cognisect.interpreter import COMPILER_VERSION, REGISTRY_VERSION
+from cognisect.interpreter import (
+    COMPILER_VERSION,
+    REGISTRY_VERSION,
+    AcceptedHypothesis,
+    canonical_truth_table_hash,
+)
 
 
 def _probe(*predictions: int, correct_prediction: int = 10) -> CompiledProbe:
@@ -52,6 +58,35 @@ def _probe(*predictions: int, correct_prediction: int = 10) -> CompiledProbe:
         ),
         specification_hash="a" * 64,
     )
+
+
+def _compiled_correct_collision_probe(*predictions: int) -> CompiledProbe:
+    template_ids = (
+        "add_subtrahend",
+        "ignore_subtrahend_sign",
+        "absolute_difference",
+    )
+    target_index = 12 * 25 + 12
+    accepted = []
+    for index, prediction in enumerate(predictions):
+        table = [7] * 625
+        table[target_index] = prediction
+        truth_table = tuple(table)
+        accepted.append(
+            AcceptedHypothesis(
+                template_id=template_ids[index],
+                evidence_refs=(f"work.{index}",),
+                description=f"alternative {index}",
+                rank=index + 1,
+                truth_table_hash=canonical_truth_table_hash(truth_table),
+                truth_table=truth_table,
+            )
+        )
+
+    result = compile_accepted_probe(tuple(accepted), 1, 1)
+    assert isinstance(result, CompiledProbe)
+    assert result.chosen_problem == SignedProblem(0, 0)
+    return result
 
 
 def test_strict_learner_response_accepts_bounded_integer_and_optional_rationale() -> None:
@@ -114,6 +149,19 @@ def test_multiple_matching_alternatives_are_unresolved_and_others_are_weakened()
 
 def test_only_correct_answer_matching_weakens_every_alternative() -> None:
     result = update_evidence(_probe(7, 8, 9), LearnerResponseV1(answer=10))
+
+    assert result.status == "weakened"
+    assert all(item.status == "weakened" for item in result.evidence)
+
+
+@pytest.mark.parametrize("predictions", [(0, 1), (0, 0, 1)])
+def test_correct_prediction_takes_precedence_over_matching_alternatives(
+    predictions: tuple[int, ...],
+) -> None:
+    probe = _compiled_correct_collision_probe(*predictions)
+    assert sum(item.prediction == probe.correct_prediction for item in probe.hypotheses) in {1, 2}
+
+    result = update_evidence(probe, LearnerResponseV1(answer=probe.correct_prediction))
 
     assert result.status == "weakened"
     assert all(item.status == "weakened" for item in result.evidence)

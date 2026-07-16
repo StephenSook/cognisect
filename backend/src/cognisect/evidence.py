@@ -68,6 +68,14 @@ def update_evidence(probe: CompiledProbe, response: LearnerResponseV1) -> Eviden
         if hypothesis.prediction == response.answer
     }
 
+    if response.answer == probe.correct_prediction:
+        return EvidenceUpdate(
+            status="weakened",
+            evidence=tuple(
+                _evidence_item(hypothesis, "weakened") for hypothesis in probe.hypotheses
+            ),
+        )
+
     if len(matching_indexes) == 1:
         evidence = tuple(
             _evidence_item(
@@ -87,14 +95,6 @@ def update_evidence(probe: CompiledProbe, response: LearnerResponseV1) -> Eviden
             for index, hypothesis in enumerate(probe.hypotheses)
         )
         return EvidenceUpdate(status="unresolved", evidence=evidence)
-
-    if response.answer == probe.correct_prediction:
-        return EvidenceUpdate(
-            status="weakened",
-            evidence=tuple(
-                _evidence_item(hypothesis, "weakened") for hypothesis in probe.hypotheses
-            ),
-        )
 
     return EvidenceUpdate(
         status="unresolved",
