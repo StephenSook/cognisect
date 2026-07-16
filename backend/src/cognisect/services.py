@@ -14,12 +14,18 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cognisect.api_models import (
+    AcceptedHypothesisResponse,
     AnswerConstraints,
+    CompiledProbeResponse,
     CreateCaseRequest,
+    EvidenceStatusResponse,
     LearnerProbeResponse,
     LearnerSubmitRequest,
     ProbeApprovalRequest,
+    ProbePredictionResponse,
+    ReviewDecision,
     ReviewRequest,
+    ReviewResultResponse,
     SignedProblemDTO,
     SourceTier,
     WorkflowResponse,
@@ -1218,6 +1224,37 @@ class WorkflowService:
             workflow = await get_owned_workflow(
                 session, workflow_id=workflow_id, owner_id=owner.id
             )
+            case = await session.get(CaseRecord, workflow.case_id)
+            if case is None:
+                msg = "resource not found"
+                raise OwnedResourceNotFoundError(msg)
+            hypotheses = list(
+                (
+                    await session.scalars(
+                        select(AcceptedHypothesisRecord)
+                        .where(AcceptedHypothesisRecord.workflow_id == workflow_id)
+                        .order_by(AcceptedHypothesisRecord.rank)
+                    )
+                ).all()
+            )
+            probe = await session.scalar(
+                select(CompiledProbeRecord).where(
+                    CompiledProbeRecord.workflow_id == workflow_id
+                )
+            )
+            predictions = (
+                list(
+                    (
+                        await session.scalars(
+                            select(ProbePredictionRecord)
+                            .where(ProbePredictionRecord.compiled_probe_id == probe.id)
+                            .order_by(ProbePredictionRecord.rank)
+                        )
+                    ).all()
+                )
+                if probe is not None
+                else []
+            )
             proposal = await session.scalar(
                 select(GeneratedProposalRecord).where(
                     GeneratedProposalRecord.workflow_id == workflow_id
@@ -1229,6 +1266,7 @@ class WorkflowService:
             return WorkflowResponse(
                 workflow_id=workflow.id,
                 case_id=workflow.case_id,
+                source_tier=cast("SourceTier", case.source_tier),
                 state=workflow.state.value,
                 schema_version=workflow.schema_version,
                 registry_version=workflow.registry_version,
@@ -1239,6 +1277,53 @@ class WorkflowService:
                 created_at=workflow.created_at,
                 updated_at=workflow.updated_at,
                 version=workflow.version,
+                accepted_hypotheses=[
+                    AcceptedHypothesisResponse(
+                        template_id=hypothesis.template_id,
+                        evidence_refs=hypothesis.evidence_refs,
+                        description=hypothesis.description,
+                        rank=hypothesis.rank,
+                        truth_table_hash=hypothesis.truth_table_hash,
+                    )
+                    for hypothesis in hypotheses
+                ],
+                compiled_probe=(
+                    CompiledProbeResponse(
+                        original_problem=SignedProblemDTO(
+                            a=probe.original_a,
+                            b=probe.original_b,
+                        ),
+                        problem=SignedProblemDTO(a=probe.chosen_a, b=probe.chosen_b),
+                        correct_prediction=probe.correct_prediction,
+                        specification_hash=probe.specification_hash,
+                        registry_version=probe.registry_version,
+                        compiler_version=probe.compiler_version,
+                        predictions=[
+                            ProbePredictionResponse(
+                                template_id=prediction.template_id,
+                                rank=prediction.rank,
+                                prediction=prediction.prediction,
+                            )
+                            for prediction in predictions
+                        ],
+                    )
+                    if probe is not None
+                    else None
+                ),
+                deterministic_evidence=[
+                    EvidenceStatusResponse.model_validate(item)
+                    for item in (proposal.evidence if proposal is not None else [])
+                ],
+                review_result=(
+                    ReviewResultResponse(
+                        decision=cast("ReviewDecision", review.decision),
+                        note=review.note,
+                        edited_text=review.edited_text,
+                        created_at=review.created_at,
+                    )
+                    if review is not None
+                    else None
+                ),
                 generated_proposal=(proposal.generated_text if proposal is not None else None),
                 edited_text=(review.edited_text if review is not None else None),
             )

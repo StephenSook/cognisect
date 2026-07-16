@@ -304,7 +304,7 @@ def create_app(  # noqa: C901, PLR0915
         workflow = await service.get_workflow_dto(secret, workflow_id)
         return LearnerTokenResponse(
             response_url=(
-                f"{resolved_settings.public_app_url}/v1/respond/{approved.token}"
+                f"{resolved_settings.public_app_url}/respond/{approved.token}"
                 if approved.token is not None
                 else None
             ),

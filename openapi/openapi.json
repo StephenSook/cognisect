@@ -1,6 +1,44 @@
 {
   "components": {
     "schemas": {
+      "AcceptedHypothesisResponse": {
+        "additionalProperties": false,
+        "description": "One persisted teacher-visible accepted hypothesis.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          },
+          "truth_table_hash": {
+            "title": "Truth Table Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "evidence_refs",
+          "description",
+          "rank",
+          "truth_table_hash"
+        ],
+        "title": "AcceptedHypothesisResponse",
+        "type": "object"
+      },
       "AnalysisRequest": {
         "additionalProperties": false,
         "description": "CAS input for an analysis command.",
@@ -102,6 +140,52 @@
         "title": "AuditResponse",
         "type": "object"
       },
+      "CompiledProbeResponse": {
+        "additionalProperties": false,
+        "description": "The persisted deterministic probe specification shown only to teachers.",
+        "properties": {
+          "compiler_version": {
+            "title": "Compiler Version",
+            "type": "string"
+          },
+          "correct_prediction": {
+            "title": "Correct Prediction",
+            "type": "integer"
+          },
+          "original_problem": {
+            "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/ProbePredictionResponse"
+            },
+            "title": "Predictions",
+            "type": "array"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "registry_version": {
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "specification_hash": {
+            "title": "Specification Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "original_problem",
+          "problem",
+          "correct_prediction",
+          "specification_hash",
+          "registry_version",
+          "compiler_version",
+          "predictions"
+        ],
+        "title": "CompiledProbeResponse",
+        "type": "object"
+      },
       "CreateCaseRequest": {
         "additionalProperties": false,
         "description": "A de-identified teacher case without learner identity fields.",
@@ -161,6 +245,37 @@
           "workflow_id"
         ],
         "title": "CreateCaseResponse",
+        "type": "object"
+      },
+      "EvidenceStatusResponse": {
+        "additionalProperties": false,
+        "description": "One deterministic status from the closed evidence vocabulary.",
+        "properties": {
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "supported",
+              "weakened",
+              "unresolved",
+              "abstained"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "rank",
+          "status"
+        ],
+        "title": "EvidenceStatusResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -324,6 +439,31 @@
         "title": "ProbeApprovalRequest",
         "type": "object"
       },
+      "ProbePredictionResponse": {
+        "additionalProperties": false,
+        "description": "One persisted alternative prediction committed with the probe.",
+        "properties": {
+          "prediction": {
+            "title": "Prediction",
+            "type": "integer"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "rank",
+          "prediction"
+        ],
+        "title": "ProbePredictionResponse",
+        "type": "object"
+      },
       "ReviewRequest": {
         "additionalProperties": false,
         "description": "Teacher decision at the final workflow interrupt.",
@@ -374,6 +514,57 @@
           "decision"
         ],
         "title": "ReviewRequest",
+        "type": "object"
+      },
+      "ReviewResultResponse": {
+        "additionalProperties": false,
+        "description": "The persisted final teacher decision and separately stored edit.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "edited",
+              "rejected",
+              "abstained"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "edited_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Text"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "decision",
+          "note",
+          "edited_text",
+          "created_at"
+        ],
+        "title": "ReviewResultResponse",
         "type": "object"
       },
       "SignedProblemDTO": {
@@ -474,10 +665,27 @@
         "additionalProperties": false,
         "description": "Teacher-facing workflow snapshot with reproducibility metadata.",
         "properties": {
+          "accepted_hypotheses": {
+            "items": {
+              "$ref": "#/components/schemas/AcceptedHypothesisResponse"
+            },
+            "title": "Accepted Hypotheses",
+            "type": "array"
+          },
           "case_id": {
             "format": "uuid",
             "title": "Case Id",
             "type": "string"
+          },
+          "compiled_probe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompiledProbeResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "compiler_version": {
             "title": "Compiler Version",
@@ -487,6 +695,13 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "deterministic_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceStatusResponse"
+            },
+            "title": "Deterministic Evidence",
+            "type": "array"
           },
           "edited_text": {
             "anyOf": [
@@ -540,8 +755,30 @@
             "title": "Registry Version",
             "type": "string"
           },
+          "review_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewResultResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schema_version": {
             "title": "Schema Version",
+            "type": "string"
+          },
+          "source_tier": {
+            "enum": [
+              "authentic",
+              "synthetic",
+              "mixed",
+              "published_exemplar",
+              "educator_authored",
+              "custom"
+            ],
+            "title": "Source Tier",
             "type": "string"
           },
           "state": {
@@ -566,6 +803,7 @@
         "required": [
           "workflow_id",
           "case_id",
+          "source_tier",
           "state",
           "schema_version",
           "registry_version",
@@ -575,7 +813,11 @@
           "model_request_id",
           "created_at",
           "updated_at",
-          "version"
+          "version",
+          "accepted_hypotheses",
+          "compiled_probe",
+          "deterministic_evidence",
+          "review_result"
         ],
         "title": "WorkflowResponse",
         "type": "object"

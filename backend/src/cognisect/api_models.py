@@ -129,11 +129,63 @@ class ReviewRequest(StrictContractModel):
         return self
 
 
+EvidenceStatus = Literal["supported", "weakened", "unresolved", "abstained"]
+ReviewDecision = Literal["approved", "edited", "rejected", "abstained"]
+
+
+class AcceptedHypothesisResponse(StrictContractModel):
+    """One persisted teacher-visible accepted hypothesis."""
+
+    template_id: str
+    evidence_refs: list[str]
+    description: str
+    rank: int
+    truth_table_hash: str
+
+
+class ProbePredictionResponse(StrictContractModel):
+    """One persisted alternative prediction committed with the probe."""
+
+    template_id: str
+    rank: int
+    prediction: int
+
+
+class CompiledProbeResponse(StrictContractModel):
+    """The persisted deterministic probe specification shown only to teachers."""
+
+    original_problem: SignedProblemDTO
+    problem: SignedProblemDTO
+    correct_prediction: int
+    specification_hash: str
+    registry_version: str
+    compiler_version: str
+    predictions: list[ProbePredictionResponse]
+
+
+class EvidenceStatusResponse(StrictContractModel):
+    """One deterministic status from the closed evidence vocabulary."""
+
+    template_id: str
+    rank: int
+    status: EvidenceStatus
+
+
+class ReviewResultResponse(StrictContractModel):
+    """The persisted final teacher decision and separately stored edit."""
+
+    decision: ReviewDecision
+    note: str | None
+    edited_text: str | None
+    created_at: datetime
+
+
 class WorkflowResponse(StrictContractModel):
     """Teacher-facing workflow snapshot with reproducibility metadata."""
 
     workflow_id: UUID
     case_id: UUID
+    source_tier: SourceTier
     state: str
     schema_version: str
     registry_version: str
@@ -144,6 +196,10 @@ class WorkflowResponse(StrictContractModel):
     created_at: datetime
     updated_at: datetime
     version: int
+    accepted_hypotheses: list[AcceptedHypothesisResponse]
+    compiled_probe: CompiledProbeResponse | None
+    deterministic_evidence: list[EvidenceStatusResponse]
+    review_result: ReviewResultResponse | None
     generated_proposal: str | None = None
     edited_text: str | None = None
 

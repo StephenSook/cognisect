@@ -1,0 +1,85 @@
+:root {
+  color-scheme: light;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: #181818;
+  background: #f7f5ef;
+}
+
+header,
+main {
+  width: min(100% - 2rem, 60rem);
+  margin-inline: auto;
+}
+
+header {
+  padding-block: 1rem;
+  border-bottom: 1px solid #777;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+main {
+  padding-block: 2rem 4rem;
+}
+
+form,
+section,
+article {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+p,
+li,
+dd {
+  overflow-wrap: anywhere;
+}
+
+input,
+select,
+textarea,
+button {
+  max-width: 38rem;
+  padding: 0.65rem;
+  font: inherit;
+}
+
+button,
+a {
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #174ea6;
+  outline-offset: 2px;
+}
+
+[role="alert"] {
+  color: #8b0000;
+}
+
+dt {
+  font-weight: 700;
+}
+
+dd {
+  margin: 0 0 0.75rem;
+}

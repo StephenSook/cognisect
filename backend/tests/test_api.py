@@ -188,7 +188,19 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
         "created_at",
         "updated_at",
         "version",
+        "source_tier",
+        "accepted_hypotheses",
+        "compiled_probe",
+        "deterministic_evidence",
+        "review_result",
     }.issubset(teacher)
+    assert teacher["source_tier"] == "custom"
+    assert [item["rank"] for item in teacher["accepted_hypotheses"]] == [1, 2]
+    assert teacher["compiled_probe"]["original_problem"] == {"a": -3, "b": 5}
+    assert len(teacher["compiled_probe"]["specification_hash"]) == 64
+    assert [item["rank"] for item in teacher["compiled_probe"]["predictions"]] == [1, 2]
+    assert teacher["deterministic_evidence"] == []
+    assert teacher["review_result"] is None
 
     approved = await client.post(
         f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
@@ -197,7 +209,10 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
     )
     assert approved.status_code == 200
     response_url = approved.json()["response_url"]
-    token = urlparse(response_url).path.rsplit("/", 1)[-1]
+    learner_path = urlparse(response_url).path
+    assert learner_path == f"/respond/{learner_path.rsplit('/', 1)[-1]}"
+    assert "/v1/respond/" not in response_url
+    token = learner_path.rsplit("/", 1)[-1]
 
     learner_client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
@@ -225,6 +240,9 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
         assert submitted.headers["cache-control"] == "no-store, private"
 
     pending = await client.get(f"/v1/workflows/{identifiers['workflow_id']}")
+    assert {item["status"] for item in pending.json()["deterministic_evidence"]} == {
+        "weakened"
+    }
     reviewed = await client.post(
         f"/v1/workflows/{identifiers['workflow_id']}/review",
         headers={"Idempotency-Key": "teacher-review-key"},
@@ -236,6 +254,12 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
     )
     assert reviewed.status_code == 200
     assert reviewed.json()["state"] == "APPROVED"
+    assert reviewed.json()["review_result"] == {
+        "decision": "approved",
+        "note": "Teacher reviewed this bounded proposal.",
+        "edited_text": None,
+        "created_at": reviewed.json()["review_result"]["created_at"],
+    }
     audit = await client.get(f"/v1/workflows/{identifiers['workflow_id']}/audit")
     assert audit.status_code == 200
     assert [event["version"] for event in audit.json()["events"]] == list(range(1, 9))

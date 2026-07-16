@@ -134,15 +134,36 @@ def test_learner_dto_has_only_approved_problem_constraints_and_expiry():
     fields = set(dto.model_dump(mode="json"))
     assert fields == {"problem", "answer_constraints", "expires_at", "instructions"}
     forbidden = {
+        "accepted_hypotheses",
+        "compiled_probe",
+        "deterministic_evidence",
         "hypotheses",
         "correct_answer",
         "predictions",
+        "review_result",
+        "source_tier",
         "owner",
         "evidence",
         "model_request_id",
         "teacher_notes",
     }
     assert fields.isdisjoint(forbidden)
+
+
+def test_learner_schema_never_includes_teacher_workflow_fields() -> None:
+    schema_text = str(LearnerProbeResponse.model_json_schema())
+    for teacher_field in (
+        "accepted_hypotheses",
+        "compiled_probe",
+        "correct_prediction",
+        "deterministic_evidence",
+        "generated_proposal",
+        "model_request_id",
+        "predictions",
+        "review_result",
+        "source_tier",
+    ):
+        assert teacher_field not in schema_text
 
 
 def test_generated_secrets_are_high_entropy_and_hashes_are_purpose_separated():

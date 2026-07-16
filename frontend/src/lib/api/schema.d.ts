@@ -1,0 +1,897 @@
+export interface paths {
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health Route */
+        get: operations["health_route_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Case Route */
+        post: operations["create_case_route_v1_cases_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cases/{case_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Analyze Case Route */
+        post: operations["analyze_case_route_v1_cases__case_id__analysis_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/respond/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Learner Probe Route */
+        get: operations["get_learner_probe_route_v1_respond__token__get"];
+        put?: never;
+        /** Submit Learner Route */
+        post: operations["submit_learner_route_v1_respond__token__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{workflow_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workflow Route */
+        get: operations["get_workflow_route_v1_workflows__workflow_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Workflow Route */
+        delete: operations["delete_workflow_route_v1_workflows__workflow_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{workflow_id}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit Route */
+        get: operations["audit_route_v1_workflows__workflow_id__audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{workflow_id}/probe-approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Probe Route */
+        post: operations["approve_probe_route_v1_workflows__workflow_id__probe_approval_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{workflow_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Workflow Route */
+        post: operations["review_workflow_route_v1_workflows__workflow_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Version Route */
+        get: operations["version_route_version_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+}
+export type webhooks = Record<string, never>;
+export interface components {
+    schemas: {
+        /**
+         * AcceptedHypothesisResponse
+         * @description One persisted teacher-visible accepted hypothesis.
+         */
+        AcceptedHypothesisResponse: {
+            /** Description */
+            description: string;
+            /** Evidence Refs */
+            evidence_refs: string[];
+            /** Rank */
+            rank: number;
+            /** Template Id */
+            template_id: string;
+            /** Truth Table Hash */
+            truth_table_hash: string;
+        };
+        /**
+         * AnalysisRequest
+         * @description CAS input for an analysis command.
+         */
+        AnalysisRequest: {
+            /**
+             * Expected Version
+             * @default 0
+             */
+            expected_version: number;
+        };
+        /**
+         * AnswerConstraints
+         * @description Strict numeric bounds disclosed to a learner.
+         */
+        AnswerConstraints: {
+            /**
+             * Maximum
+             * @default 10000
+             * @constant
+             */
+            maximum: 10000;
+            /**
+             * Minimum
+             * @default -10000
+             * @constant
+             */
+            minimum: -10000;
+        };
+        /**
+         * AuditEventResponse
+         * @description One append-only transition event.
+         */
+        AuditEventResponse: {
+            /** From State */
+            from_state: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Sequence */
+            sequence: number;
+            /** To State */
+            to_state: string;
+            /** Version */
+            version: number;
+        };
+        /**
+         * AuditResponse
+         * @description Complete transition readback for one owned workflow.
+         */
+        AuditResponse: {
+            /** Events */
+            events: components["schemas"]["AuditEventResponse"][];
+            /**
+             * Workflow Id
+             * Format: uuid
+             */
+            workflow_id: string;
+        };
+        /**
+         * CompiledProbeResponse
+         * @description The persisted deterministic probe specification shown only to teachers.
+         */
+        CompiledProbeResponse: {
+            /** Compiler Version */
+            compiler_version: string;
+            /** Correct Prediction */
+            correct_prediction: number;
+            original_problem: components["schemas"]["SignedProblemDTO"];
+            /** Predictions */
+            predictions: components["schemas"]["ProbePredictionResponse"][];
+            problem: components["schemas"]["SignedProblemDTO"];
+            /** Registry Version */
+            registry_version: string;
+            /** Specification Hash */
+            specification_hash: string;
+        };
+        /**
+         * CreateCaseRequest
+         * @description A de-identified teacher case without learner identity fields.
+         */
+        CreateCaseRequest: {
+            /**
+             * Deidentified Attestation
+             * @default false
+             */
+            deidentified_attestation: boolean;
+            /** Observed Work */
+            observed_work: string;
+            problem: components["schemas"]["SignedProblemDTO"];
+            /**
+             * Source Tier
+             * @enum {string}
+             */
+            source_tier: "authentic" | "synthetic" | "mixed" | "published_exemplar" | "educator_authored" | "custom";
+        };
+        /**
+         * CreateCaseResponse
+         * @description Opaque identifiers for the newly owned case and workflow.
+         */
+        CreateCaseResponse: {
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /**
+             * Workflow Id
+             * Format: uuid
+             */
+            workflow_id: string;
+        };
+        /**
+         * EvidenceStatusResponse
+         * @description One deterministic status from the closed evidence vocabulary.
+         */
+        EvidenceStatusResponse: {
+            /** Rank */
+            rank: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "supported" | "weakened" | "unresolved" | "abstained";
+            /** Template Id */
+            template_id: string;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * LearnerProbeResponse
+         * @description Deliberately minimal learner-facing DTO.
+         */
+        LearnerProbeResponse: {
+            answer_constraints: components["schemas"]["AnswerConstraints"];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Instructions
+             * @default Submit one signed integer.
+             * @constant
+             */
+            instructions: "Submit one signed integer.";
+            problem: components["schemas"]["SignedProblemDTO"];
+        };
+        /**
+         * LearnerReceiptResponse
+         * @description Content-minimal receipt for the accepted response.
+         */
+        LearnerReceiptResponse: {
+            /**
+             * Accepted At
+             * Format: date-time
+             */
+            accepted_at: string;
+            /**
+             * Receipt Id
+             * Format: uuid
+             */
+            receipt_id: string;
+        };
+        /**
+         * LearnerSubmitRequest
+         * @description Strict one-answer learner submission.
+         */
+        LearnerSubmitRequest: {
+            /** Answer */
+            answer: number;
+            /** Rationale */
+            rationale?: string | null;
+        };
+        /**
+         * LearnerTokenResponse
+         * @description Teacher decision result with a capability only when the probe is approved.
+         */
+        LearnerTokenResponse: {
+            /** Expires At */
+            expires_at: string | null;
+            /** Response Url */
+            response_url: string | null;
+            workflow: components["schemas"]["WorkflowResponse"];
+        };
+        /**
+         * ProbeApprovalRequest
+         * @description Teacher decision at the first workflow interrupt.
+         */
+        ProbeApprovalRequest: {
+            /** Approved */
+            approved: boolean;
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Expires In Seconds
+             * @default 86400
+             */
+            expires_in_seconds: number;
+        };
+        /**
+         * ProbePredictionResponse
+         * @description One persisted alternative prediction committed with the probe.
+         */
+        ProbePredictionResponse: {
+            /** Prediction */
+            prediction: number;
+            /** Rank */
+            rank: number;
+            /** Template Id */
+            template_id: string;
+        };
+        /**
+         * ReviewRequest
+         * @description Teacher decision at the final workflow interrupt.
+         */
+        ReviewRequest: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "edited" | "rejected" | "abstained";
+            /** Edited Text */
+            edited_text?: string | null;
+            /** Expected Version */
+            expected_version: number;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * ReviewResultResponse
+         * @description The persisted final teacher decision and separately stored edit.
+         */
+        ReviewResultResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "edited" | "rejected" | "abstained";
+            /** Edited Text */
+            edited_text: string | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * SignedProblemDTO
+         * @description One signed-subtraction problem in the frozen compiler domain.
+         */
+        SignedProblemDTO: {
+            /** A */
+            a: number;
+            /** B */
+            b: number;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+        };
+        /**
+         * VersionResponse
+         * @description Public build and deterministic-contract versions.
+         */
+        VersionResponse: {
+            /** Compiler Version */
+            compiler_version: string;
+            /** Registry Version */
+            registry_version: string;
+            /** Schema Version */
+            schema_version: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * WorkflowResponse
+         * @description Teacher-facing workflow snapshot with reproducibility metadata.
+         */
+        WorkflowResponse: {
+            /** Accepted Hypotheses */
+            accepted_hypotheses: components["schemas"]["AcceptedHypothesisResponse"][];
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            compiled_probe: components["schemas"]["CompiledProbeResponse"] | null;
+            /** Compiler Version */
+            compiler_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deterministic Evidence */
+            deterministic_evidence: components["schemas"]["EvidenceStatusResponse"][];
+            /** Edited Text */
+            edited_text?: string | null;
+            /** Generated Proposal */
+            generated_proposal?: string | null;
+            /** Model Request Id */
+            model_request_id: string | null;
+            /** Model Snapshot */
+            model_snapshot: string | null;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Registry Version */
+            registry_version: string;
+            review_result: components["schemas"]["ReviewResultResponse"] | null;
+            /** Schema Version */
+            schema_version: string;
+            /**
+             * Source Tier
+             * @enum {string}
+             */
+            source_tier: "authentic" | "synthetic" | "mixed" | "published_exemplar" | "educator_authored" | "custom";
+            /** State */
+            state: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
+            /**
+             * Workflow Id
+             * Format: uuid
+             */
+            workflow_id: string;
+        };
+    };
+    responses: never;
+    parameters: never;
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
+}
+export type $defs = Record<string, never>;
+export interface operations {
+    health_route_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    create_case_route_v1_cases_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateCaseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_case_route_v1_cases__case_id__analysis_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                case_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_learner_probe_route_v1_respond__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearnerProbeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_learner_route_v1_respond__token__post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LearnerSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearnerReceiptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_route_v1_workflows__workflow_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_workflow_route_v1_workflows__workflow_id__delete: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    audit_route_v1_workflows__workflow_id__audit_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_probe_route_v1_workflows__workflow_id__probe_approval_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProbeApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearnerTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_workflow_route_v1_workflows__workflow_id__review_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_route_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+        };
+    };
+}
