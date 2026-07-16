@@ -53,12 +53,12 @@ correct answer, or perform Terra/Sol work. Preserve characters and meaning exact
 """
 
 _TERRA_MISSION = """
-TERRA MAPPING AND DRAFTING MISSION.
+TERRA MAPPING AND NOTE-PLANNING MISSION.
 
 Map visible mathematical work to the smallest defensible set of distinct registry
 alternatives. Ground each output in exact supplied references. Preserve uncertainty
-through ranking, not confidence percentages. Draft one cautious bounded instructional
-note in the same internal output wrapper.
+through ranking, not confidence percentages. Select one enum-only instructional-note
+plan in the same internal output wrapper; the application renders fixed safe text.
 """
 
 _SOL_MISSION = """
@@ -147,18 +147,21 @@ _TERRA_SCHEMA = """
 STRICT INTERNAL OUTPUT SCHEMA terra_analysis.v1.
 
 Return exactly one JSON object with exactly schema_version, mapping, and
-instructional_note_draft. schema_version is the literal terra_analysis.v1. mapping is
+instructional_note_plan. schema_version is the literal terra_analysis.v1. mapping is
 one nested object matching rule_mapping.v1 exactly: schema_version plus two through
 four ranked hypotheses, each with exactly template_id, evidence_refs, description,
 and rank. Every evidence reference must identify a supplied segment.
 
-instructional_note_draft is one cautious teacher-facing string from one through 2,000
-characters. It may use only bounded claims such as ranked hypothesis, consistent with,
-weakened, unresolved, abstained, teacher-reviewed, and deterministic compiler/update.
-It must not claim confirmation, diagnosis, confidence, certainty, proof, or a stable
-misconception. Do not add reasoning, hidden reasoning, tools, state, approval,
-identity, confidence, metadata, or any other field. The caller owns bounded repair,
-compiler validation, deterministic evidence attachment, and teacher review.
+instructional_note_plan is exactly one instructional_note_plan.v1 object with exactly
+schema_version, observation, and teacher_action. Its schema_version is the literal
+instructional_note_plan.v1. observation is exactly one of
+multiple_hypotheses_fit_observed_work or evidence_does_not_separate_hypotheses.
+teacher_action is exactly one of review_compiled_probe or
+review_deterministic_evidence_after_response. No free text, probability, percentage,
+certainty, diagnosis, confidence, claim, or extra field is permitted. Do not add
+reasoning, hidden reasoning, tools, state, approval, identity, metadata, or any other
+field. The caller renders fixed safe text and owns bounded repair, compiler validation,
+deterministic evidence attachment, and teacher review.
 """
 
 _WORKFLOW = """
@@ -233,7 +236,7 @@ TERRA CLOSED-MAPPING PROTOCOL.
 
 Map visible mathematical work using only the closed registry, ground every hypothesis
 in supplied references, and paraphrase only bounded mathematical behavior. Emit
-terra_analysis.v1 with a nested mapping and cautious note draft.
+terra_analysis.v1 with a nested mapping and enum-only instructional-note plan.
 """
 
 _SOL_PROTOCOL = """

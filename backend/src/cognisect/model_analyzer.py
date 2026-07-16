@@ -29,6 +29,7 @@ from cognisect.model_policy import (
     TokenUsage,
     calculate_cost_usd,
     initial_route,
+    render_instructional_note,
     route_review_flags,
     should_use_sol,
 )
@@ -371,6 +372,31 @@ class ResponsesAnalyzer:
                 telemetry=telemetry,
                 cause="policy_failure",
             )
+        try:
+            cost_usd = calculate_cost_usd(requested_model, usage)
+        except ValueError:
+            telemetry = ModelCallTelemetry(
+                requested_model_id=requested_model,
+                returned_model_id=returned_model,
+                request_id=request_id,
+                status="policy_failure",
+                latency_ms=latency_ms,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                reasoning_tokens=usage.reasoning_tokens,
+                cached_input_tokens=usage.cached_input_tokens,
+                cache_write_input_tokens=usage.cache_write_input_tokens,
+                cost_usd=Decimal(),
+                prompt_hash=prompt.full_prompt_sha256,
+                route_version=ROUTE_VERSION,
+                prompt_cache_key=prompt.prompt_cache_key,
+            )
+            await self._journal.finalize(plan, telemetry, None)
+            return _CallResult(
+                parsed=None,
+                telemetry=telemetry,
+                cause="policy_failure",
+            )
         telemetry = ModelCallTelemetry(
             requested_model_id=requested_model,
             returned_model_id=returned_model,
@@ -382,7 +408,7 @@ class ResponsesAnalyzer:
             reasoning_tokens=usage.reasoning_tokens,
             cached_input_tokens=usage.cached_input_tokens,
             cache_write_input_tokens=usage.cache_write_input_tokens,
-            cost_usd=calculate_cost_usd(requested_model, usage),
+            cost_usd=cost_usd,
             prompt_hash=prompt.full_prompt_sha256,
             route_version=ROUTE_VERSION,
             prompt_cache_key=prompt.prompt_cache_key,
@@ -555,7 +581,9 @@ class ResponsesAnalyzer:
             else:
                 terra_result = cast("TerraAnalysisV1", result.parsed)
                 terra_mapping = terra_result.mapping
-                terra_draft = terra_result.instructional_note_draft
+                terra_draft = render_instructional_note(
+                    terra_result.instructional_note_plan
+                )
 
         if terra_mapping is None:
             return self._result(

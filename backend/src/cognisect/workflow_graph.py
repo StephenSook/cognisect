@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
 from typing import Final, Literal, TypedDict, cast
@@ -23,6 +24,7 @@ _CHECKPOINT_DELETE_STATEMENTS: Final = (
     ("checkpoint_blobs", text("DELETE FROM checkpoint_blobs WHERE thread_id = :thread_id")),
     ("checkpoints", text("DELETE FROM checkpoints WHERE thread_id = :thread_id")),
 )
+MAX_CONCURRENT_GRAPH_OPERATIONS: Final = 4
 
 
 class WorkflowGraphState(TypedDict):
@@ -66,6 +68,7 @@ class WorkflowGraphRuntime:
         """Compile the stable two-interrupt graph with an injected update action."""
         self._session_factory = session_factory
         self._update_action = update_action
+        self._operation_slots = asyncio.Semaphore(MAX_CONCURRENT_GRAPH_OPERATIONS)
 
         builder = StateGraph(WorkflowGraphState)
         builder.add_node("probe_interrupt", self._probe_interrupt)
@@ -152,7 +155,11 @@ class WorkflowGraphRuntime:
     ) -> dict[str, object]:
         """Start a workflow at the teacher's probe approval interrupt."""
         if not _lock_held:
-            async with self._session_factory() as session, session.begin():
+            async with (
+                self._operation_slots,
+                self._session_factory() as session,
+                session.begin(),
+            ):
                 await acquire_lifecycle_lock(session, thread_id)
                 if not await self._workflow_exists(
                     session,
@@ -193,7 +200,11 @@ class WorkflowGraphRuntime:
     ) -> dict[str, object]:
         """Resume the durable probe interrupt with a content-free decision."""
         if not _lock_held:
-            async with self._session_factory() as session, session.begin():
+            async with (
+                self._operation_slots,
+                self._session_factory() as session,
+                session.begin(),
+            ):
                 await acquire_lifecycle_lock(session, thread_id)
                 if not await self._workflow_exists(session, thread_id):
                     return {}
@@ -228,7 +239,11 @@ class WorkflowGraphRuntime:
     ) -> dict[str, object]:
         """Run idempotent response updating, then stop at the review interrupt."""
         if not _lock_held:
-            async with self._session_factory() as session, session.begin():
+            async with (
+                self._operation_slots,
+                self._session_factory() as session,
+                session.begin(),
+            ):
                 await acquire_lifecycle_lock(session, thread_id)
                 if not await self._workflow_exists(
                     session,
@@ -270,7 +285,11 @@ class WorkflowGraphRuntime:
     ) -> dict[str, object]:
         """Resume the durable teacher review interrupt."""
         if not _lock_held:
-            async with self._session_factory() as session, session.begin():
+            async with (
+                self._operation_slots,
+                self._session_factory() as session,
+                session.begin(),
+            ):
                 await acquire_lifecycle_lock(session, thread_id)
                 if not await self._workflow_exists(session, thread_id):
                     return {}

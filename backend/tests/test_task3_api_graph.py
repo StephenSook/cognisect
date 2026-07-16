@@ -83,9 +83,11 @@ def _provider_response() -> dict[str, object]:
     terra = {
         "schema_version": "terra_analysis.v1",
         "mapping": mapping,
-        "instructional_note_draft": (
-            "Two hypotheses remain plausible; teacher review is required."
-        ),
+        "instructional_note_plan": {
+            "schema_version": "instructional_note_plan.v1",
+            "observation": "multiple_hypotheses_fit_observed_work",
+            "teacher_action": "review_compiled_probe",
+        },
     }
     return {
         "id": "resp_transport_terra",
@@ -236,7 +238,12 @@ async def test_full_api_loop_uses_official_transport_and_real_checkpoint_tables(
             workflow = await session.get(WorkflowRecord, identifiers["workflow_id"])
             assert workflow is not None
             assert await session.scalar(select(func.count(ModelCallRecord.id))) == 1
-            assert await session.scalar(select(func.count(GeneratedProposalRecord.id))) == 1
+            proposal = await session.scalar(select(GeneratedProposalRecord))
+            assert proposal is not None
+            assert proposal.generated_text == (
+                "Multiple ranked hypotheses are consistent with the observed work. "
+                "Review the compiled probe before learner access."
+            )
             checkpoint_count = await session.scalar(
                 text("SELECT count(*) FROM checkpoints WHERE thread_id = :thread_id"),
                 {"thread_id": str(workflow.thread_id)},

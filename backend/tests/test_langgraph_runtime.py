@@ -466,3 +466,45 @@ async def test_graph_commands_after_committed_deletion_never_recreate_checkpoint
                 {"thread_id": str(thread_id)},
             )
             assert count == 0
+
+
+@pytest.mark.postgres
+async def test_graph_operation_bound_leaves_pool_capacity_for_update_nodes(
+    checkpointer, db_engine
+) -> None:
+    factory = create_session_factory(db_engine)
+    operation_count = 6
+    started_count = 0
+    four_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def connection_using_update(_workflow_id):
+        nonlocal started_count
+        async with factory() as session:
+            await session.execute(text("SELECT 1"))
+        started_count += 1
+        if started_count == 4:
+            four_started.set()
+        await release.wait()
+
+    runtime = WorkflowGraphRuntime(
+        factory,
+        checkpointer,
+        update_action=connection_using_update,
+    )
+    identifiers = [(uuid4(), uuid4()) for _ in range(operation_count)]
+    for workflow_id, thread_id in identifiers:
+        await persist_graph_workflow(factory, workflow_id, thread_id)
+    tasks = [
+        asyncio.create_task(runtime.resume_after_response(workflow_id, thread_id))
+        for workflow_id, thread_id in identifiers
+    ]
+
+    await asyncio.wait_for(four_started.wait(), timeout=2)
+    await asyncio.sleep(0.05)
+    assert started_count == 4
+    release.set()
+    results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=3)
+
+    assert len(results) == operation_count
+    assert started_count == operation_count

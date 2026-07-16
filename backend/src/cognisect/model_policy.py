@@ -11,7 +11,6 @@ from pydantic import (
     Field,
     StringConstraints,
     ValidationError,
-    field_validator,
     model_validator,
 )
 
@@ -81,20 +80,6 @@ ADVERSARIAL_REVIEW_MARKERS: Final = (
 
 EvidenceRef = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=80)]
 EvidenceText = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=10_000)]
-InstructionalNoteDraft = Annotated[
-    str,
-    StringConstraints(strict=True, min_length=1, max_length=2_000),
-]
-_FORBIDDEN_NOTE_CLAIMS = (
-    "confirm",
-    "diagnos",
-    "confidence",
-    "certain",
-    "proved",
-    "stable misconception",
-)
-
-
 class NormalizedEvidenceSegment(StrictContractModel):
     """One bounded, addressable segment produced by Luna or supplied directly."""
 
@@ -118,22 +103,47 @@ class NormalizedEvidenceV1(StrictContractModel):
         return self
 
 
+class InstructionalNotePlanV1(StrictContractModel):
+    """Enum-only inputs for deterministic instructional-note rendering."""
+
+    schema_version: Literal["instructional_note_plan.v1"]
+    observation: Literal[
+        "multiple_hypotheses_fit_observed_work",
+        "evidence_does_not_separate_hypotheses",
+    ]
+    teacher_action: Literal[
+        "review_compiled_probe",
+        "review_deterministic_evidence_after_response",
+    ]
+
+
+_NOTE_OBSERVATIONS: Final = {
+    "multiple_hypotheses_fit_observed_work": (
+        "Multiple ranked hypotheses are consistent with the observed work."
+    ),
+    "evidence_does_not_separate_hypotheses": (
+        "The observed work does not separate the ranked hypotheses."
+    ),
+}
+_NOTE_ACTIONS: Final = {
+    "review_compiled_probe": "Review the compiled probe before learner access.",
+    "review_deterministic_evidence_after_response": (
+        "Review deterministic evidence after the learner response."
+    ),
+}
+
+
+def render_instructional_note(plan: InstructionalNotePlanV1) -> str:
+    """Render only checked-in observation and teacher-action vocabulary."""
+    return f"{_NOTE_OBSERVATIONS[plan.observation]} {_NOTE_ACTIONS[plan.teacher_action]}"
+
+
 class TerraAnalysisV1(StrictContractModel):
-    """Internal same-call Terra mapping and cautious instructional-note draft."""
+    """Internal same-call Terra mapping and enum-only instructional-note plan."""
 
     schema_version: Literal["terra_analysis.v1"]
     mapping: RuleMappingV1
-    instructional_note_draft: InstructionalNoteDraft
-
-    @field_validator("instructional_note_draft")
-    @classmethod
-    def note_uses_cautious_language(cls, value: str) -> str:
-        """Reject diagnosis, confidence, and certainty claims from model output."""
-        lowered = value.casefold()
-        if any(claim in lowered for claim in _FORBIDDEN_NOTE_CLAIMS):
-            msg = "instructional note draft must remain cautious"
-            raise ValueError(msg)
-        return value
+    instructional_note_plan: InstructionalNotePlanV1
 
 
 @dataclass(frozen=True, slots=True)

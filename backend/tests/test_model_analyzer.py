@@ -13,9 +13,11 @@ from openai import AsyncOpenAI
 from cognisect.config import Settings
 from cognisect.model_analyzer import ResponsesAnalyzer
 from cognisect.model_policy import (
+    InstructionalNotePlanV1,
     NormalizedEvidenceSegment,
     NormalizedEvidenceV1,
     TerraAnalysisV1,
+    render_instructional_note,
 )
 from cognisect.models import RuleInstanceV1, RuleMappingV1
 from cognisect.services import AnalysisInput, ModelCallTelemetry
@@ -36,11 +38,19 @@ def _mapping(*template_ids: str) -> RuleMappingV1:
     )
 
 
-def _terra(mapping: RuleMappingV1, note: str = "A ranked hypothesis remains unresolved."):
+def _note_plan() -> InstructionalNotePlanV1:
+    return InstructionalNotePlanV1(
+        schema_version="instructional_note_plan.v1",
+        observation="multiple_hypotheses_fit_observed_work",
+        teacher_action="review_compiled_probe",
+    )
+
+
+def _terra(mapping: RuleMappingV1, plan: InstructionalNotePlanV1 | None = None):
     return TerraAnalysisV1(
         schema_version="terra_analysis.v1",
         mapping=mapping,
-        instructional_note_draft=note,
+        instructional_note_plan=plan or _note_plan(),
     )
 
 
@@ -68,6 +78,12 @@ def _response(parsed, *, model: str, request_id: str, input_tokens: int = 100):
             output_tokens_details=SimpleNamespace(reasoning_tokens=7),
         ),
     )
+
+
+def _raw_response(output_text: str, *, request_id: str):
+    response = _response(None, model="gpt-5.6-terra", request_id=request_id)
+    response.output[0].content[0].text = output_text
+    return response
 
 
 class FakeResponses:
@@ -368,6 +384,103 @@ async def test_response_metadata_parse_failure_finalizes_policy_failure() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reasoning_tokens", "cached_tokens", "cache_write_tokens"),
+    [(21, 0, 0), (0, 90, 20)],
+)
+async def test_inconsistent_usage_finalizes_metadata_and_replays_without_provider(
+    reasoning_tokens, cached_tokens, cache_write_tokens
+) -> None:
+    journal = MemoryAttemptJournal()
+    response = _response(
+        _terra(_mapping("add_subtrahend", "absolute_difference")),
+        model="gpt-5.6-terra",
+        request_id="resp_inconsistent_usage",
+        input_tokens=100,
+    )
+    response.usage.output_tokens = 20
+    response.usage.output_tokens_details.reasoning_tokens = reasoning_tokens
+    response.usage.input_tokens_details.cached_tokens = cached_tokens
+    response.usage.input_tokens_details.cache_write_tokens = cache_write_tokens
+    first_client = FakeClient([response])
+
+    first = await ResponsesAnalyzer(
+        _settings(), client=first_client, journal=journal
+    ).analyze(_input("teacher text", source_tier="educator_authored"))
+
+    assert first.abstention_cause == "policy_failure"
+    telemetry = journal.existing[1][0]
+    assert telemetry.status == "policy_failure"
+    assert telemetry.request_id == "resp_inconsistent_usage"
+    assert telemetry.returned_model_id == "gpt-5.6-terra"
+    assert telemetry.input_tokens == 100
+    assert telemetry.output_tokens == 20
+    assert telemetry.reasoning_tokens == reasoning_tokens
+    assert telemetry.cached_input_tokens == cached_tokens
+    assert telemetry.cache_write_input_tokens == cache_write_tokens
+    assert telemetry.cost_usd == Decimal()
+
+    replay_client = FakeClient(
+        [AssertionError("finalized policy failures must not redispatch")]
+    )
+    replay = await ResponsesAnalyzer(
+        _settings(), client=replay_client, journal=journal
+    ).analyze(_input("teacher text", source_tier="educator_authored"))
+
+    assert replay.abstention_cause == "policy_failure"
+    assert replay_client.responses.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "note_payload",
+    [
+        {"instructional_note_draft": "A ranked hypothesis remains plausible."},
+        {"instructional_note_draft": "There is a 99% probability this is certain."},
+        {
+            "instructional_note_plan": {
+                "schema_version": "instructional_note_plan.v1",
+                "observation": "99_percent_probability",
+                "teacher_action": "review_compiled_probe",
+            }
+        },
+        {
+            "instructional_note_plan": {
+                "schema_version": "instructional_note_plan.v1",
+                "observation": "multiple_hypotheses_fit_observed_work",
+                "teacher_action": "review_compiled_probe",
+                "certainty": "confirmed",
+            }
+        },
+    ],
+)
+async def test_adversarial_note_payload_repairs_once_then_abstains(note_payload) -> None:
+    payload = {
+        "schema_version": "terra_analysis.v1",
+        "mapping": _mapping(
+            "add_subtrahend", "absolute_difference"
+        ).model_dump(mode="json"),
+        **note_payload,
+    }
+    raw = __import__("json").dumps(payload)
+    client = FakeClient(
+        [
+            _raw_response(raw, request_id="unsafe_note_1"),
+            _raw_response(raw, request_id="unsafe_note_2"),
+        ]
+    )
+
+    result = await ResponsesAnalyzer(_settings(), client=client).analyze(
+        _input("teacher text", source_tier="educator_authored")
+    )
+
+    assert result.mapping is None
+    assert result.abstention_cause == "malformed_output"
+    assert len(client.responses.calls) == 2
+    assert client.responses.calls[1]["metadata"]["repair"] == "1"
+
+
+@pytest.mark.asyncio
 async def test_structured_case_uses_only_terra_official_parse_without_reasoning_trace() -> None:
     structured = (
         '{"schema_version":"normalized_evidence.v1","segments":'
@@ -487,12 +600,13 @@ async def test_sol_runs_only_after_terra_has_fewer_than_two_distinct_alternative
 
 @pytest.mark.asyncio
 async def test_terra_drafts_note_in_mapping_call_and_sol_replaces_only_mapping() -> None:
-    terra_draft = "A ranked hypothesis is consistent with the work; teacher review is required."
+    note_plan = _note_plan()
+    terra_draft = render_instructional_note(note_plan)
     sol_mapping = _mapping("add_subtrahend", "absolute_difference")
     client = FakeClient(
         [
             _response(
-                _terra(_mapping("add_subtrahend", "add_subtrahend"), terra_draft),
+                _terra(_mapping("add_subtrahend", "add_subtrahend"), note_plan),
                 model="gpt-5.6-terra",
                 request_id="terra_with_draft",
             ),

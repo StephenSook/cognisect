@@ -64,10 +64,11 @@ def test_internal_terra_wrapper_keeps_public_mapping_frozen_and_note_cautious() 
         {
             "schema_version": "terra_analysis.v1",
             "mapping": mapping_payload,
-            "instructional_note_draft": (
-                "A ranked hypothesis is consistent with the observed work; "
-                "teacher review remains required."
-            ),
+            "instructional_note_plan": {
+                "schema_version": "instructional_note_plan.v1",
+                "observation": "multiple_hypotheses_fit_observed_work",
+                "teacher_action": "review_compiled_probe",
+            },
         }
     )
 
@@ -75,16 +76,52 @@ def test_internal_terra_wrapper_keeps_public_mapping_frozen_and_note_cautious() 
     assert set(wrapped.model_dump(mode="json")) == {
         "schema_version",
         "mapping",
-        "instructional_note_draft",
+        "instructional_note_plan",
     }
-    with pytest.raises(ValidationError, match="cautious"):
+    with pytest.raises(ValidationError):
         wrapper_type.model_validate(
             {
                 "schema_version": "terra_analysis.v1",
                 "mapping": mapping_payload,
-                "instructional_note_draft": "This confirms a diagnosis with 99% confidence.",
+                "instructional_note_plan": "This confirms a diagnosis with 99% confidence.",
             }
         )
+
+
+def test_instructional_note_plan_is_enum_only_and_deterministically_rendered() -> None:
+    from cognisect import model_policy
+
+    plan_type = model_policy.InstructionalNotePlanV1
+    renderer = model_policy.render_instructional_note
+    plan = plan_type.model_validate(
+        {
+            "schema_version": "instructional_note_plan.v1",
+            "observation": "multiple_hypotheses_fit_observed_work",
+            "teacher_action": "review_compiled_probe",
+        }
+    )
+
+    assert renderer(plan) == (
+        "Multiple ranked hypotheses are consistent with the observed work. "
+        "Review the compiled probe before learner access."
+    )
+    assert set(plan.model_dump()) == {"schema_version", "observation", "teacher_action"}
+    for invalid in (
+        {"instructional_note_plan": "99% probability"},
+        {
+            "schema_version": "instructional_note_plan.v1",
+            "observation": "certain_diagnosis",
+            "teacher_action": "review_compiled_probe",
+        },
+        {
+            "schema_version": "instructional_note_plan.v1",
+            "observation": "multiple_hypotheses_fit_observed_work",
+            "teacher_action": "review_compiled_probe",
+            "certainty": "confirmed",
+        },
+    ):
+        with pytest.raises(ValidationError):
+            plan_type.model_validate(invalid)
 
 
 def test_static_prompt_prefix_is_large_complete_and_versioned() -> None:
@@ -93,7 +130,7 @@ def test_static_prompt_prefix_is_large_complete_and_versioned() -> None:
     assert len(PROMPT_PREFIX_SHA256) == 64
     assert PROMPT_PREFIX_SHA256S == {
         "luna": "1682022b2715e89d06d1de2bc8c653b1a7fe93b5aba5d657eb7706d2eb6d4998",
-        "terra": "e94aeb61c4f176f4abfdb75dfbc24ceefe3e53f5aa6d64eee8f0e2d8f770218e",
+        "terra": "eb9af47d180269cd916deb78cfa85001da0aca6d4f5e7eae5fb56095841012e2",
         "sol": "eaebc1bb51c141a9abd22905cfcfdcd8e11c96550ee1ca647295b68011221aa1",
     }
     assert PROMPT_CACHE_KEYS == {
@@ -135,7 +172,7 @@ def test_luna_is_normalization_only_and_terra_uses_internal_wrapper_schema() -> 
     assert "preserve uncertainty through ranking" not in luna
     assert "terra mapping" not in luna
     assert "terra_analysis.v1" in terra
-    assert "instructional_note_draft" in terra
+    assert "instructional_note_plan" in terra
     assert "strict output schema rule_mapping.v1" in sol
     assert "terra_analysis.v1" not in sol
 

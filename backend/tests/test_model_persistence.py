@@ -28,7 +28,7 @@ from cognisect.db_models import (
 )
 from cognisect.model_analyzer import ResponsesAnalyzer
 from cognisect.model_attempts import PostgresAttemptJournal
-from cognisect.model_policy import TerraAnalysisV1
+from cognisect.model_policy import InstructionalNotePlanV1, TerraAnalysisV1
 from cognisect.models import RuleInstanceV1, RuleMappingV1
 from cognisect.repositories import transition_workflow
 from cognisect.services import (
@@ -209,7 +209,11 @@ class OneTerraResponses:
         output = TerraAnalysisV1(
             schema_version="terra_analysis.v1",
             mapping=mapping,
-            instructional_note_draft="Two hypotheses remain; teacher review is required.",
+            instructional_note_plan=InstructionalNotePlanV1(
+                schema_version="instructional_note_plan.v1",
+                observation="multiple_hypotheses_fit_observed_work",
+                teacher_action="review_compiled_probe",
+            ),
         )
         return SimpleNamespace(
             id="resp_crash_gap",
