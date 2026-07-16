@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cognisect.example/schemas/rule-mapping.v1.schema.json",
+  "title": "RuleMappingV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "hypotheses"],
+  "properties": {
+    "schema_version": {"const": "rule_mapping.v1"},
+    "hypotheses": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {"$ref": "rule-instance.v1.schema.json"}
+    }
+  }
+}

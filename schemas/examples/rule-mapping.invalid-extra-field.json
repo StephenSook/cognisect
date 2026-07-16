@@ -1,0 +1,18 @@
+{
+  "schema_version": "rule_mapping.v1",
+  "hypotheses": [
+    {
+      "template_id": "ignore_subtrahend_sign",
+      "evidence_refs": ["answer"],
+      "description": "Invalid because executable content is present.",
+      "rank": 1,
+      "expression": "eval(user_input)"
+    },
+    {
+      "template_id": "add_subtrahend",
+      "evidence_refs": ["answer"],
+      "description": "Second alternative.",
+      "rank": 2
+    }
+  ]
+}

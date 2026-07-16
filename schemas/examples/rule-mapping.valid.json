@@ -1,0 +1,17 @@
+{
+  "schema_version": "rule_mapping.v1",
+  "hypotheses": [
+    {
+      "template_id": "ignore_subtrahend_sign",
+      "evidence_refs": ["work.line_1"],
+      "description": "The response treats the second integer as a positive magnitude.",
+      "rank": 1
+    },
+    {
+      "template_id": "add_subtrahend",
+      "evidence_refs": ["answer"],
+      "description": "The response may be consistent with adding the written signed values.",
+      "rank": 2
+    }
+  ]
+}
