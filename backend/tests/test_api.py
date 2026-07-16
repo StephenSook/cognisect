@@ -7,12 +7,17 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
 from cognisect.api import OWNER_COOKIE_NAME, create_app
 from cognisect.config import Settings
 from cognisect.database import create_session_factory
-from cognisect.db_models import LearnerTokenRecord
+from cognisect.db_models import (
+    InvalidLearnerCommandRecord,
+    LearnerResponseRecord,
+    LearnerTokenRecord,
+    WorkflowRecord,
+)
 from cognisect.models import RuleInstanceV1, RuleMappingV1
 from cognisect.security import hash_secret
 from cognisect.services import AnalysisInput, AnalyzerResult
@@ -384,7 +389,52 @@ async def test_every_learner_response_error_has_privacy_headers(client, db_engin
     gone = await client.get(f"/v1/respond/{expired_token}")
 
     assert [not_found.status_code, conflict.status_code, gone.status_code] == [404, 409, 410]
-    assert unprocessable.status_code == 422
+    assert unprocessable.status_code == 404
     for response in (not_found, unprocessable, conflict, gone):
         assert response.headers["referrer-policy"] == "no-referrer"
         assert response.headers["cache-control"] == "no-store, private"
+
+
+@pytest.mark.postgres
+async def test_invalid_answer_is_token_authorized_idempotent_and_content_free(
+    client, db_engine
+):
+    token = await issue_learner_token(client, "invalid-answer")
+    other_token = await issue_learner_token(client, "invalid-answer-other")
+    marker = "PRIVATE-INVALID-ANSWER"
+
+    first = await client.post(
+        f"/v1/respond/{token}",
+        headers={"Idempotency-Key": "invalid-answer-key"},
+        json={"answer": marker},
+    )
+    replay = await client.post(
+        f"/v1/respond/{token}",
+        headers={"Idempotency-Key": "invalid-answer-key"},
+        json={"answer": 10_001},
+    )
+    conflict = await client.post(
+        f"/v1/respond/{token}",
+        headers={"Idempotency-Key": "invalid-other-key"},
+        json={"answer": []},
+    )
+    other_probe = await client.get(f"/v1/respond/{other_token}")
+
+    assert first.status_code == replay.status_code == 200
+    assert first.json() == replay.json()
+    assert conflict.status_code == 409
+    assert other_probe.status_code == 200
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        token_hash = hash_secret(token, "l" * 32, purpose="learner-token")
+        token_record = await session.scalar(
+            select(LearnerTokenRecord).where(LearnerTokenRecord.token_hash == token_hash)
+        )
+        assert token_record is not None
+        workflow = await session.get(WorkflowRecord, token_record.workflow_id)
+        invalid = await session.scalar(select(InvalidLearnerCommandRecord))
+        response_count = await session.scalar(select(func.count(LearnerResponseRecord.id)))
+    assert workflow is not None and workflow.state == "ABSTAINED"
+    assert invalid is not None
+    assert marker not in repr(invalid)
+    assert response_count == 0

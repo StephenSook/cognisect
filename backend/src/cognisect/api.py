@@ -38,6 +38,7 @@ from cognisect.database import create_engine, create_session_factory
 from cognisect.db_models import SCHEMA_VERSION
 from cognisect.interpreter import COMPILER_VERSION, REGISTRY_VERSION
 from cognisect.model_analyzer import ResponsesAnalyzer
+from cognisect.model_attempts import PostgresAttemptJournal
 from cognisect.repositories import (
     ConcurrentWriteError,
     OwnedResourceNotFoundError,
@@ -62,6 +63,10 @@ from cognisect.workflow_graph import (
 )
 
 OWNER_COOKIE_NAME = "cognisect_owner"
+IDEMPOTENCY_KEY_MIN_LENGTH = 8
+IDEMPOTENCY_KEY_MAX_LENGTH = 200
+VISIBLE_ASCII_MIN = 0x21
+VISIBLE_ASCII_MAX = 0x7E
 IdempotencyKey = Annotated[
     str,
     Header(
@@ -91,10 +96,11 @@ def create_app(  # noqa: C901, PLR0915
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     analyzer: Analyzer | None,
     graph_runtime: GraphRuntime | None = None,
+    _owned_engine: AsyncEngine | None = None,
 ) -> FastAPI:
     """Construct an app; analyzer omission remains explicit and never installs a fake."""
     resolved_settings = settings or Settings()  # type: ignore[call-arg]
-    owned_engine: AsyncEngine | None = None
+    owned_engine = _owned_engine
     if session_factory is None:
         owned_engine = create_engine(resolved_settings.database_url)
         session_factory = create_session_factory(owned_engine)
@@ -162,8 +168,43 @@ def create_app(  # noqa: C901, PLR0915
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
-        _request: Request, exception: RequestValidationError
+        request: Request, exception: RequestValidationError
     ) -> JSONResponse:
+        invalid_learner_body = (
+            request.method == "POST"
+            and request.url.path.startswith("/v1/respond/")
+            and any(error.get("loc", (None,))[0] == "body" for error in exception.errors())
+        )
+        idempotency_key = request.headers.get("Idempotency-Key")
+        token = request.path_params.get("token")
+        if (
+            invalid_learner_body
+            and isinstance(token, str)
+            and isinstance(idempotency_key, str)
+            and IDEMPOTENCY_KEY_MIN_LENGTH
+            <= len(idempotency_key)
+            <= IDEMPOTENCY_KEY_MAX_LENGTH
+            and all(
+                VISIBLE_ASCII_MIN <= ord(character) <= VISIBLE_ASCII_MAX
+                for character in idempotency_key
+            )
+        ):
+            try:
+                receipt = await service.submit_invalid_learner_answer(
+                    token=token,
+                    idempotency_key=idempotency_key,
+                )
+            except (OwnedResourceNotFoundError, LearnerTokenNotFoundError):
+                return JSONResponse(status_code=404, content={"detail": "resource not found"})
+            except ExpiredLearnerTokenError:
+                return JSONResponse(status_code=410, content={"detail": "learner link expired"})
+            except (ReplayConflictError, ConcurrentWriteError, WorkflowTransitionError):
+                return JSONResponse(status_code=409, content={"detail": "command conflict"})
+            content = LearnerReceiptResponse(
+                receipt_id=receipt.receipt_id,
+                accepted_at=receipt.accepted_at,
+            ).model_dump(mode="json")
+            return JSONResponse(status_code=200, content=content)
         safe_errors = [
             {key: value for key, value in error.items() if key not in {"input", "ctx"}}
             for error in exception.errors()
@@ -359,5 +400,19 @@ def create_app(  # noqa: C901, PLR0915
 def build_app() -> FastAPI:
     """Install the real analyzer only for a fully validated production environment."""
     settings = Settings()  # type: ignore[call-arg]
-    analyzer = ResponsesAnalyzer(settings) if is_production(settings) else None
-    return create_app(settings=settings, analyzer=analyzer)
+    engine = create_engine(settings.database_url)
+    sessions = create_session_factory(engine)
+    analyzer = (
+        ResponsesAnalyzer(
+            settings,
+            journal=PostgresAttemptJournal(sessions),
+        )
+        if is_production(settings)
+        else None
+    )
+    return create_app(
+        settings=settings,
+        session_factory=sessions,
+        analyzer=analyzer,
+        _owned_engine=engine,
+    )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Literal, Protocol, TypeVar, cast
 
@@ -14,12 +14,18 @@ from pydantic import BaseModel
 from cognisect.api_models import CreateCaseRequest
 from cognisect.config import Settings
 from cognisect.interpreter import accept_hypotheses
+from cognisect.model_attempts import (
+    AttemptJournal,
+    ModelAttemptPlan,
+    NullAttemptJournal,
+)
 from cognisect.model_policy import (
     LONG_CONTEXT_THRESHOLD_TOKENS,
     MIN_SEPARATING_ALTERNATIVES,
     MODEL_IDS,
     ROUTE_VERSION,
     NormalizedEvidenceV1,
+    TerraAnalysisV1,
     TokenUsage,
     calculate_cost_usd,
     initial_route,
@@ -49,11 +55,10 @@ class _ParsedResponse(Protocol):
     model: str
     output: object
     usage: object
-    output_parsed: object
 
 
 class _ResponsesResource(Protocol):
-    async def parse(self, **kwargs: object) -> _ParsedResponse: ...
+    async def create(self, **kwargs: object) -> _ParsedResponse: ...
 
 
 class _ResponsesClient(Protocol):
@@ -74,6 +79,30 @@ def _is_refusal(response: object) -> bool:
         if any(getattr(content, "type", None) == "refusal" for content in item.content):
             return True
     return False
+
+
+def _single_output_text(response: object) -> str | None:
+    """Return one assistant output text, rejecting missing or ambiguous output."""
+    output_texts: list[str] = []
+    for item in getattr(response, "output", ()):
+        if getattr(item, "type", None) != "message":
+            continue
+        for content in getattr(item, "content", ()):
+            if getattr(content, "type", None) != "output_text":
+                continue
+            text = getattr(content, "text", None)
+            if isinstance(text, str):
+                output_texts.append(text)
+    return output_texts[0] if len(output_texts) == 1 else None
+
+
+def _schema_name(text_format: type[BaseModel]) -> str:
+    names = {
+        NormalizedEvidenceV1: "normalized_evidence_v1",
+        TerraAnalysisV1: "terra_analysis_v1",
+        RuleMappingV1: "rule_mapping_v1",
+    }
+    return names[text_format]
 
 
 def _usage_from_response(response: object) -> TokenUsage:
@@ -110,14 +139,20 @@ class ResponsesAnalyzer:
         settings: Settings,
         *,
         client: _ResponsesClient | None = None,
+        journal: AttemptJournal | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         """Initialize with frozen settings and an optional official client."""
         self._settings = settings
         self._client: _ResponsesClient = client or cast(
             "_ResponsesClient",
-            AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value()),
+            AsyncOpenAI(
+                api_key=settings.openai_api_key.get_secret_value(),
+                max_retries=0,
+                timeout=settings.model_timeout_seconds,
+            ),
         )
+        self._journal = journal or NullAttemptJournal()
         self._monotonic = monotonic
 
     def _models_are_frozen(self) -> bool:
@@ -167,9 +202,11 @@ class ResponsesAnalyzer:
             prompt_cache_key=prompt.prompt_cache_key,
         )
 
-    async def _call(
+    async def _call(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
         self,
         *,
+        case: AnalysisInput,
+        attempt_ordinal: int,
         purpose: _Purpose,
         prompt_case: CreateCaseRequest,
         text_format: type[_T],
@@ -178,9 +215,69 @@ class ResponsesAnalyzer:
     ) -> _CallResult:
         prompt = build_prompt(prompt_case, purpose=purpose, repair=repair)
         requested_model = MODEL_IDS[purpose]
+        plan = ModelAttemptPlan(
+            case_id=case.case_id,
+            workflow_id=case.workflow_id,
+            attempt_ordinal=attempt_ordinal,
+            purpose=purpose,
+            repair=repair,
+            requested_model_id=requested_model,
+            prompt_hash=prompt.full_prompt_sha256,
+            route_version=ROUTE_VERSION,
+            prompt_cache_key=prompt.prompt_cache_key,
+        )
+        decision = await self._journal.plan(plan)
+        if decision.action == "stale":
+            return _CallResult(
+                parsed=None,
+                telemetry=decision.telemetry,
+                cause="policy_failure",
+            )
+        if decision.action == "recovered":
+            telemetry = decision.telemetry
+            if telemetry is None:
+                return _CallResult(parsed=None, telemetry=None, cause="policy_failure")
+            causes: dict[str, AnalyzerAbstentionCause] = {
+                "malformed_output": "malformed_output",
+                "refused": "refusal",
+                "timeout": "timeout",
+                "policy_failure": "policy_failure",
+                "cost_blocked": "cost_limit",
+            }
+            if telemetry.status != "completed":
+                return _CallResult(
+                    parsed=None,
+                    telemetry=telemetry,
+                    cause=causes.get(telemetry.status, "policy_failure"),
+                )
+            try:
+                parsed = (
+                    decision.artifact
+                    if isinstance(decision.artifact, text_format)
+                    else text_format.model_validate(decision.artifact)
+                )
+            except ValueError:
+                return _CallResult(
+                    parsed=None,
+                    telemetry=telemetry,
+                    cause="policy_failure",
+                )
+            if not self._valid_artifact(
+                parsed=parsed,
+                text_format=text_format,
+                case=case,
+                prompt_case=prompt_case,
+            ):
+                return _CallResult(
+                    parsed=None,
+                    telemetry=telemetry,
+                    cause="policy_failure",
+                )
+            return _CallResult(parsed=parsed, telemetry=telemetry, cause=None)
+
         maximum = Decimal(str(self._settings.max_model_cost_usd))
         if spent + self._projected_cost(purpose, prompt) > maximum:
-            return _CallResult(
+            result = _CallResult(
                 parsed=None,
                 telemetry=self._empty_telemetry(
                     requested_model=requested_model,
@@ -190,24 +287,34 @@ class ResponsesAnalyzer:
                 ),
                 cause="cost_limit",
             )
+            await self._journal.finalize(plan, cast("ModelCallTelemetry", result.telemetry), None)
+            return result
 
         started = self._monotonic()
         try:
-            response = await self._client.responses.parse(
+            response = await self._client.responses.create(
                 model=requested_model,
                 instructions=prompt.instructions,
                 input=prompt.input_text,
-                text_format=text_format,
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": _schema_name(text_format),
+                        "schema": text_format.model_json_schema(),
+                        "strict": True,
+                    }
+                },
                 prompt_cache_key=prompt.prompt_cache_key,
                 max_output_tokens=_MAX_OUTPUT_TOKENS,
                 store=False,
                 metadata={"repair": "1", "route": ROUTE_VERSION}
                 if repair
                 else {"route": ROUTE_VERSION},
+                extra_headers={"X-Client-Request-Id": decision.client_request_id},
             )
         except (TimeoutError, APITimeoutError):
             latency_ms = max(0, round((self._monotonic() - started) * 1_000))
-            return _CallResult(
+            result = _CallResult(
                 parsed=None,
                 telemetry=self._empty_telemetry(
                     requested_model=requested_model,
@@ -217,9 +324,11 @@ class ResponsesAnalyzer:
                 ),
                 cause="timeout",
             )
+            await self._journal.finalize(plan, cast("ModelCallTelemetry", result.telemetry), None)
+            return result
         except Exception:  # noqa: BLE001 - every provider/parser failure becomes typed.
             latency_ms = max(0, round((self._monotonic() - started) * 1_000))
-            return _CallResult(
+            result = _CallResult(
                 parsed=None,
                 telemetry=self._empty_telemetry(
                     requested_model=requested_model,
@@ -229,14 +338,43 @@ class ResponsesAnalyzer:
                 ),
                 cause="policy_failure",
             )
+            await self._journal.finalize(plan, cast("ModelCallTelemetry", result.telemetry), None)
+            return result
 
         latency_ms = max(0, round((self._monotonic() - started) * 1_000))
-        usage = _usage_from_response(response)
-        returned_model = str(response.model)
+        try:
+            usage = _usage_from_response(response)
+            returned_model = str(response.model)
+            request_id = str(response.id)
+        except Exception:  # noqa: BLE001 - malformed metadata is a typed final outcome.
+            telemetry = replace(
+                self._empty_telemetry(
+                    requested_model=requested_model,
+                    prompt=prompt,
+                    status="policy_failure",
+                    latency_ms=latency_ms,
+                ),
+                returned_model_id=(
+                    str(response.model)
+                    if getattr(response, "model", None) is not None
+                    else None
+                ),
+                request_id=(
+                    str(response.id)
+                    if getattr(response, "id", None) is not None
+                    else None
+                ),
+            )
+            await self._journal.finalize(plan, telemetry, None)
+            return _CallResult(
+                parsed=None,
+                telemetry=telemetry,
+                cause="policy_failure",
+            )
         telemetry = ModelCallTelemetry(
             requested_model_id=requested_model,
             returned_model_id=returned_model,
-            request_id=str(response.id),
+            request_id=request_id,
             status="refused" if _is_refusal(response) else "completed",
             latency_ms=latency_ms,
             input_tokens=usage.input_tokens,
@@ -250,19 +388,78 @@ class ResponsesAnalyzer:
             prompt_cache_key=prompt.prompt_cache_key,
         )
         if _is_refusal(response):
-            return _CallResult(parsed=None, telemetry=telemetry, cause="refusal")
-        parsed = getattr(response, "output_parsed", None)
-        if not isinstance(parsed, text_format):
-            return _CallResult(parsed=None, telemetry=telemetry, cause="malformed_output")
+            result = _CallResult(parsed=None, telemetry=telemetry, cause="refusal")
+            await self._journal.finalize(plan, telemetry, None)
+            return result
+        output_text = _single_output_text(response)
+        if output_text is None:
+            malformed = replace(telemetry, status="malformed_output")
+            result = _CallResult(
+                parsed=None,
+                telemetry=malformed,
+                cause="malformed_output",
+            )
+            await self._journal.finalize(plan, malformed, None)
+            return result
+        try:
+            parsed = text_format.model_validate_json(output_text)
+        except ValueError:
+            malformed = replace(telemetry, status="malformed_output")
+            result = _CallResult(
+                parsed=None,
+                telemetry=malformed,
+                cause="malformed_output",
+            )
+            await self._journal.finalize(plan, malformed, None)
+            return result
+        if not self._valid_artifact(
+            parsed=parsed,
+            text_format=text_format,
+            case=case,
+            prompt_case=prompt_case,
+        ):
+            malformed = replace(telemetry, status="malformed_output")
+            result = _CallResult(
+                parsed=None,
+                telemetry=malformed,
+                cause="malformed_output",
+            )
+            await self._journal.finalize(plan, malformed, None)
+            return result
+        await self._journal.finalize(plan, telemetry, parsed)
         return _CallResult(parsed=parsed, telemetry=telemetry, cause=None)
 
     @staticmethod
+    def _valid_artifact(
+        *,
+        parsed: BaseModel,
+        text_format: type[BaseModel],
+        case: AnalysisInput,
+        prompt_case: CreateCaseRequest,
+    ) -> bool:
+        if text_format is NormalizedEvidenceV1:
+            normalized = cast("NormalizedEvidenceV1", parsed)
+            return all(segment.text in case.observed_work for segment in normalized.segments)
+        if text_format is TerraAnalysisV1:
+            mapping = cast("TerraAnalysisV1", parsed).mapping
+        elif text_format is RuleMappingV1:
+            mapping = cast("RuleMappingV1", parsed)
+        else:
+            return False
+        allowed = allowed_evidence_refs(prompt_case)
+        return all(
+            set(hypothesis.evidence_refs).issubset(allowed)
+            for hypothesis in mapping.hypotheses
+        )
+
     def _result(
+        self,
         *,
         mapping: RuleMappingV1 | None,
         cause: AnalyzerAbstentionCause | None,
         calls: list[ModelCallTelemetry],
         fallback_model: str,
+        proposal_draft: str | None = None,
     ) -> AnalyzerResult:
         final = calls[-1] if calls else None
         return AnalyzerResult(
@@ -274,6 +471,8 @@ class ResponsesAnalyzer:
             request_id=final.request_id if final is not None else None,
             model_calls=tuple(calls),
             abstention_cause=cause,
+            proposal_draft=proposal_draft,
+            calls_persisted=self._journal.persists_attempts,
         )
 
     async def analyze(  # noqa: C901, PLR0911
@@ -295,30 +494,15 @@ class ResponsesAnalyzer:
         async def invoke(purpose: _Purpose, text_format: type[_T]) -> _CallResult:
             nonlocal repair_used
 
-            def validate_references(result: _CallResult) -> _CallResult:
-                if result.cause is not None or text_format is not RuleMappingV1:
-                    return result
-                mapping = cast("RuleMappingV1", result.parsed)
-                allowed = allowed_evidence_refs(prompt_case)
-                if all(
-                    set(hypothesis.evidence_refs).issubset(allowed)
-                    for hypothesis in mapping.hypotheses
-                ):
-                    return result
-                return _CallResult(
-                    parsed=None,
-                    telemetry=result.telemetry,
-                    cause="malformed_output",
-                )
-
             result = await self._call(
+                case=case,
+                attempt_ordinal=len(calls) + 1,
                 purpose=purpose,
                 prompt_case=prompt_case,
                 text_format=text_format,
                 repair=False,
                 spent=sum((item.cost_usd for item in calls), start=Decimal()),
             )
-            result = validate_references(result)
             if result.telemetry is not None:
                 calls.append(result.telemetry)
             if (
@@ -328,18 +512,20 @@ class ResponsesAnalyzer:
             ):
                 repair_used = True
                 result = await self._call(
+                    case=case,
+                    attempt_ordinal=len(calls) + 1,
                     purpose=purpose,
                     prompt_case=prompt_case,
                     text_format=text_format,
                     repair=True,
                     spent=sum((item.cost_usd for item in calls), start=Decimal()),
                 )
-                result = validate_references(result)
                 if result.telemetry is not None:
                     calls.append(result.telemetry)
             return result
 
         terra_mapping: RuleMappingV1 | None = None
+        terra_draft: str | None = None
         for raw_purpose in purposes:
             purpose = cast("_Purpose", raw_purpose)
             if len(calls) >= self._settings.max_model_calls_per_case:
@@ -350,7 +536,7 @@ class ResponsesAnalyzer:
                     fallback_model=MODEL_IDS[purpose],
                 )
             text_format: type[BaseModel] = (
-                NormalizedEvidenceV1 if purpose == "luna" else RuleMappingV1
+                NormalizedEvidenceV1 if purpose == "luna" else TerraAnalysisV1
             )
             result = await invoke(purpose, text_format)
             if result.cause is not None:
@@ -367,7 +553,9 @@ class ResponsesAnalyzer:
                     observed_work=normalized.model_dump_json(),
                 )
             else:
-                terra_mapping = cast("RuleMappingV1", result.parsed)
+                terra_result = cast("TerraAnalysisV1", result.parsed)
+                terra_mapping = terra_result.mapping
+                terra_draft = terra_result.instructional_note_draft
 
         if terra_mapping is None:
             return self._result(
@@ -390,6 +578,7 @@ class ResponsesAnalyzer:
                     cause="no_separating_alternatives",
                     calls=calls,
                     fallback_model=MODEL_IDS["sol"],
+                    proposal_draft=terra_draft,
                 )
             sol_result = await invoke("sol", RuleMappingV1)
             if sol_result.cause is not None:
@@ -398,6 +587,7 @@ class ResponsesAnalyzer:
                     cause=sol_result.cause,
                     calls=calls,
                     fallback_model=MODEL_IDS["sol"],
+                    proposal_draft=terra_draft,
                 )
             terra_mapping = cast("RuleMappingV1", sol_result.parsed)
 
@@ -407,10 +597,12 @@ class ResponsesAnalyzer:
                 cause="no_separating_alternatives",
                 calls=calls,
                 fallback_model=MODEL_IDS["sol"],
+                proposal_draft=terra_draft,
             )
         return self._result(
             mapping=terra_mapping,
             cause=None,
             calls=calls,
             fallback_model=MODEL_IDS["terra"],
+            proposal_draft=terra_draft,
         )

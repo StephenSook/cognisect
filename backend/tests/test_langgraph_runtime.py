@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.types import Command
 from sqlalchemy import text
 
+from cognisect.api_models import CreateCaseRequest
+from cognisect.config import Settings
 from cognisect.database import create_session_factory
-from cognisect.db_models import CaseRecord
-from cognisect.services import RetentionService
+from cognisect.db_models import CaseRecord, WorkflowRecord
+from cognisect.services import RetentionService, WorkflowService
 from cognisect.workflow_graph import (
     WorkflowGraphRuntime,
     checkpoint_connection_url,
@@ -39,6 +44,65 @@ def test_checkpoint_serializer_disables_pickle_and_arbitrary_module_loading() ->
     assert serializer.pickle_fallback is False
     assert serializer._allowed_msgpack_modules is None
     assert serializer._allowed_json_modules is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "kwargs", "phase"),
+    [
+        ("start_probe_interrupt", {}, "probe"),
+        ("resume_probe", {"approved": True}, "probe"),
+        ("resume_review", {"decision": "approved"}, "update"),
+    ],
+)
+async def test_pending_snapshots_advance_with_none_instead_of_false_completed_noop(
+    command, kwargs, phase
+) -> None:
+    class RecordingGraph:
+        def __init__(self) -> None:
+            self.inputs = []
+
+        async def ainvoke(self, value, _config):
+            self.inputs.append(value)
+            return {"advanced": True}
+
+    runtime = object.__new__(WorkflowGraphRuntime)
+    graph = RecordingGraph()
+    runtime._graph = graph
+    state_reads = 0
+
+    async def pending_state(_thread_id):
+        nonlocal state_reads
+        state_reads += 1
+        kind = "probe_approval" if command == "resume_probe" else "teacher_review"
+        if state_reads > 1:
+            return SimpleNamespace(
+                interrupts=(SimpleNamespace(value={"kind": kind}),),
+                next=(),
+                values={"workflow_id": str(workflow_id), "phase": phase},
+            )
+        return SimpleNamespace(
+            interrupts=(),
+            next=("pending_node",),
+            values={"workflow_id": str(uuid4()), "phase": phase},
+        )
+
+    runtime.get_state = pending_state
+    workflow_id = uuid4()
+    thread_id = uuid4()
+    method = getattr(runtime, command)
+    result = (
+        await method(workflow_id, thread_id, _lock_held=True, **kwargs)
+        if command == "start_probe_interrupt"
+        else await method(thread_id, _lock_held=True, **kwargs)
+    )
+
+    assert result == {"advanced": True}
+    if command == "start_probe_interrupt":
+        assert graph.inputs == [None]
+    else:
+        assert graph.inputs[0] is None
+        assert isinstance(graph.inputs[1], Command)
 
 
 @pytest.mark.postgres
@@ -254,5 +318,69 @@ async def test_retention_purges_checkpoint_rows_in_the_content_transaction(
             count = await session.scalar(
                 text(f"SELECT count(*) FROM {table} WHERE thread_id = :thread_id"),
                 {"thread_id": str(workflow.thread_id)},
+            )
+            assert count == 0
+
+
+@pytest.mark.postgres
+async def test_deletion_waits_for_inflight_graph_then_purges_every_checkpoint(
+    checkpointer, db_engine
+) -> None:
+    factory = create_session_factory(db_engine)
+    settings = Settings(
+        app_env="test",
+        database_url=TEST_DATABASE_URL,
+        owner_secret_pepper="o" * 32,
+        learner_token_pepper="l" * 32,
+        public_app_url="http://localhost:3000",
+        openai_api_key="",
+    )
+    service = WorkflowService(factory, settings, analyzer=None)
+    created = await service.create_case(
+        CreateCaseRequest(
+            source_tier="custom",
+            problem={"a": -3, "b": 5},
+            observed_work="-3 - 5 = 2",
+            deidentified_attestation=True,
+        ),
+        idempotency_key="lock-create",
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocking_update(_workflow_id):
+        started.set()
+        await release.wait()
+
+    runtime = WorkflowGraphRuntime(factory, checkpointer, update_action=blocking_update)
+    service.attach_graph_runtime(runtime)
+    async with factory() as session:
+        workflow = await session.get(WorkflowRecord, created.workflow_id)
+        assert workflow is not None
+        thread_id = workflow.thread_id
+
+    graph_task = asyncio.create_task(
+        runtime.resume_after_response(created.workflow_id, thread_id)
+    )
+    await started.wait()
+    deletion_task = asyncio.create_task(
+        service.delete_workflow(
+            owner_secret=created.owner_secret,
+            workflow_id=created.workflow_id,
+            idempotency_key="lock-delete",
+        )
+    )
+    await asyncio.sleep(0.05)
+    assert not deletion_task.done()
+    release.set()
+    await graph_task
+    await deletion_task
+
+    async with factory() as session:
+        assert await session.get(WorkflowRecord, created.workflow_id) is None
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            count = await session.scalar(
+                text(f"SELECT count(*) FROM {table} WHERE thread_id = :thread_id"),
+                {"thread_id": str(thread_id)},
             )
             assert count == 0

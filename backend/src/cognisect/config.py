@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     retention_days: int = Field(default=30, ge=1, le=365)
     max_model_calls_per_case: int = Field(default=3, ge=1, le=3)
     max_model_cost_usd: float = Field(default=1.0, gt=0)
+    model_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     model_luna: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
     model_terra: Literal["gpt-5.6-terra"] = "gpt-5.6-terra"
     model_sol: Literal["gpt-5.6-sol"] = "gpt-5.6-sol"

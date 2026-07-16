@@ -22,6 +22,8 @@ from cognisect.db_models import (
     CaseRecord,
     CompiledProbeRecord,
     DeletionAuditTombstoneRecord,
+    GeneratedProposalRecord,
+    InvalidLearnerCommandRecord,
     LearnerResponseRecord,
     LearnerTokenRecord,
     OwnerRecord,
@@ -51,8 +53,9 @@ class Clock:
 
 
 class FakeAnalyzer:
-    def __init__(self, mapping: RuleMappingV1) -> None:
+    def __init__(self, mapping: RuleMappingV1, *, proposal_draft: str | None = None) -> None:
         self.mapping = mapping
+        self.proposal_draft = proposal_draft
         self.inputs: list[AnalysisInput] = []
 
     async def analyze(self, case: AnalysisInput) -> AnalyzerResult:
@@ -62,6 +65,7 @@ class FakeAnalyzer:
             model_id="test-model",
             model_snapshot="test-model-2026-07-16",
             request_id="req_test_public_metadata",
+            proposal_draft=self.proposal_draft,
         )
 
 
@@ -169,6 +173,56 @@ async def test_analysis_persists_probe_and_predictions_before_any_token(
 
 
 @pytest.mark.postgres
+async def test_terra_note_is_persisted_before_response_then_only_evidence_is_attached(
+    db_engine, db_session, test_settings, case_request
+):
+    del db_session
+    draft = "Two ranked hypotheses remain plausible; teacher review is required."
+    service = WorkflowService(
+        create_session_factory(db_engine),
+        test_settings,
+        analyzer=FakeAnalyzer(
+            mapping("add_subtrahend", "absolute_difference"),
+            proposal_draft=draft,
+        ),
+    )
+    created, workflow = await prepare_probe(service, case_request)
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        before = await session.scalar(
+            select(GeneratedProposalRecord).where(
+                GeneratedProposalRecord.workflow_id == created.workflow_id
+            )
+        )
+        assert before is not None
+        assert before.generated_text == draft
+        assert before.evidence == []
+
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=True),
+        idempotency_key="draft-approval",
+    )
+    assert approved.token is not None
+    await service.submit_learner_response(
+        token=approved.token,
+        request=LearnerSubmitRequest(answer=3),
+        idempotency_key="draft-response",
+    )
+
+    async with factory() as session:
+        after = await session.scalar(
+            select(GeneratedProposalRecord).where(
+                GeneratedProposalRecord.workflow_id == created.workflow_id
+            )
+        )
+        assert after is not None
+        assert after.generated_text == draft
+        assert after.evidence
+
+
+@pytest.mark.postgres
 async def test_approval_uses_fresh_nonce_and_exact_replay_returns_same_capability(
     service, db_engine, case_request
 ):
@@ -202,6 +256,38 @@ async def test_approval_uses_fresh_nonce_and_exact_replay_returns_same_capabilit
     assert len(token_record.derivation_nonce) == 32
     assert token_record.token_hash != approved.token
     assert approved.token not in repr(token_record)
+
+
+@pytest.mark.postgres
+async def test_approval_fails_closed_until_probe_interrupt_is_reconstructed(
+    service, db_engine, case_request
+):
+    created, workflow = await prepare_probe(service, case_request)
+
+    class MissingGateGraph:
+        async def start_probe_interrupt(self, workflow_id, thread_id):
+            assert workflow_id == created.workflow_id
+            assert thread_id == workflow.thread_id
+            return {}
+
+        async def resume_probe(self, _thread_id, *, approved):
+            msg = f"missing gate cannot be resumed: {approved}"
+            raise AssertionError(msg)
+
+    service.attach_graph_runtime(MissingGateGraph())
+    with pytest.raises(ReplayConflictError, match="probe approval gate is not ready"):
+        await service.approve_probe(
+            owner_secret=created.owner_secret,
+            workflow_id=created.workflow_id,
+            request=ProbeApprovalRequest(expected_version=workflow.version, approved=True),
+            idempotency_key="missing-probe-gate",
+        )
+
+    persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
+    assert persisted.state == WorkflowState.PROBE_READY
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        assert await session.scalar(select(func.count(LearnerTokenRecord.id))) == 0
 
 
 @pytest.mark.postgres
@@ -354,6 +440,41 @@ async def test_expired_token_returns_gone_without_response(
             request=LearnerSubmitRequest(answer=1),
             idempotency_key="expired",
         )
+    with pytest.raises(ExpiredLearnerTokenError):
+        await service.submit_invalid_learner_answer(
+            token=approved.token,
+            idempotency_key="expired-invalid",
+        )
+
+
+@pytest.mark.postgres
+async def test_concurrent_invalid_answers_abstain_once_and_replay_one_receipt(
+    service, db_engine, case_request
+):
+    created, workflow = await prepare_probe(service, case_request)
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=True),
+        idempotency_key="invalid-concurrent-approval",
+    )
+    receipts = await asyncio.gather(
+        *(
+            service.submit_invalid_learner_answer(
+                token=approved.token,
+                idempotency_key="invalid-concurrent-key",
+            )
+            for _ in range(5)
+        )
+    )
+
+    assert len({receipt.receipt_id for receipt in receipts}) == 1
+    persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
+    assert persisted.state == WorkflowState.ABSTAINED
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        assert await session.scalar(select(func.count(InvalidLearnerCommandRecord.id))) == 1
+        assert await session.scalar(select(func.count(LearnerResponseRecord.id))) == 0
 
 
 @pytest.mark.postgres
@@ -558,6 +679,7 @@ async def test_graph_commands_observe_db_state_first_and_replays_recover(service
             assert persisted.state == WorkflowState.PROBE_READY
             assert persisted.thread_id == thread_id
             self.probe_starts += 1
+            return {"__interrupt__": ("probe_approval",)}
 
         async def resume_probe(self, thread_id, *, approved):
             persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
@@ -643,7 +765,7 @@ async def test_graph_commands_observe_db_state_first_and_replays_recover(service
         idempotency_key="graph-review",
     )
 
-    assert graph.probe_starts == 2
+    assert graph.probe_starts == 3
     assert graph.probe_resumes == 2
     assert graph.response_resumes == 2
     assert graph.review_resumes == 2

@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from cognisect.api_models import CreateCaseRequest
 from cognisect.interpreter import REGISTRY_TEMPLATE_IDS
@@ -38,19 +39,67 @@ def _case(*, source_tier: str = "custom", observed_work: str) -> CreateCaseReque
     )
 
 
+def test_internal_terra_wrapper_keeps_public_mapping_frozen_and_note_cautious() -> None:
+    from cognisect import model_policy
+
+    wrapper_type = model_policy.TerraAnalysisV1
+    mapping_payload = {
+        "schema_version": "rule_mapping.v1",
+        "hypotheses": [
+            {
+                "template_id": "add_subtrahend",
+                "evidence_refs": ["observed_work"],
+                "description": "Adds the written second operand.",
+                "rank": 1,
+            },
+            {
+                "template_id": "absolute_difference",
+                "evidence_refs": ["observed_work"],
+                "description": "Uses a magnitude difference.",
+                "rank": 2,
+            },
+        ],
+    }
+    wrapped = wrapper_type.model_validate(
+        {
+            "schema_version": "terra_analysis.v1",
+            "mapping": mapping_payload,
+            "instructional_note_draft": (
+                "A ranked hypothesis is consistent with the observed work; "
+                "teacher review remains required."
+            ),
+        }
+    )
+
+    assert wrapped.mapping.model_dump(mode="json") == mapping_payload
+    assert set(wrapped.model_dump(mode="json")) == {
+        "schema_version",
+        "mapping",
+        "instructional_note_draft",
+    }
+    with pytest.raises(ValidationError, match="cautious"):
+        wrapper_type.model_validate(
+            {
+                "schema_version": "terra_analysis.v1",
+                "mapping": mapping_payload,
+                "instructional_note_draft": "This confirms a diagnosis with 99% confidence.",
+            }
+        )
+
+
 def test_static_prompt_prefix_is_large_complete_and_versioned() -> None:
-    assert PROMPT_VERSION == "analysis_prompt.v1"
+    assert PROMPT_VERSION == "analysis_prompt.v2"
     assert all(len(prefix.split()) >= 1_024 for prefix in STATIC_PREFIXES.values())
     assert len(PROMPT_PREFIX_SHA256) == 64
     assert PROMPT_PREFIX_SHA256S == {
-        "luna": "1db332fefd5c130f2a10ed75e42692299b7bd46fa20e3ea4617ca8190ad049a9",
-        "terra": "8b6ea3a5611114f7472ff40b53b79d76accd18920ddf0a646549eab61925ce72",
-        "sol": "8b6ea3a5611114f7472ff40b53b79d76accd18920ddf0a646549eab61925ce72",
+        "luna": "1682022b2715e89d06d1de2bc8c653b1a7fe93b5aba5d657eb7706d2eb6d4998",
+        "terra": "e94aeb61c4f176f4abfdb75dfbc24ceefe3e53f5aa6d64eee8f0e2d8f770218e",
+        "sol": "eaebc1bb51c141a9abd22905cfcfdcd8e11c96550ee1ca647295b68011221aa1",
     }
     assert PROMPT_CACHE_KEYS == {
-        "luna": "cognisect.analysis_prompt.v1.luna",
-        "terra": "cognisect.analysis_prompt.v1.terra",
-        "sol": "cognisect.analysis_prompt.v1.sol",
+        "luna": "cognisect.analysis_prompt.v2.luna",
+        "terra": "cognisect.analysis_prompt.v2.terra",
+        "sol": "cognisect.analysis_prompt.v2.sol",
     }
     for template_id in REGISTRY_TEMPLATE_IDS:
         assert template_id in STATIC_PREFIX
@@ -70,10 +119,25 @@ def test_static_prompt_prefix_is_large_complete_and_versioned() -> None:
         assert required in STATIC_PREFIX.lower()
 
     assert "normalized_evidence.v1" in STATIC_PREFIXES["luna"]
-    assert "emit rule_mapping.v1" in STATIC_PREFIXES["luna"]
+    assert "must never emit rule_mapping.v1" in STATIC_PREFIXES["luna"]
     assert "Do not interpret the work" in STATIC_PREFIXES["luna"]
     assert "STRICT OUTPUT SCHEMA rule_mapping.v1" not in STATIC_PREFIXES["luna"]
-    assert "STRICT OUTPUT SCHEMA rule_mapping.v1" in STATIC_PREFIXES["terra"]
+    assert "STRICT INTERNAL OUTPUT SCHEMA terra_analysis.v1" in STATIC_PREFIXES["terra"]
+
+
+def test_luna_is_normalization_only_and_terra_uses_internal_wrapper_schema() -> None:
+    luna = STATIC_PREFIXES["luna"].lower()
+    terra = STATIC_PREFIXES["terra"].lower()
+    sol = STATIC_PREFIXES["sol"].lower()
+
+    assert "bounded normalization component" in luna
+    assert "map visible mathematical work" not in luna
+    assert "preserve uncertainty through ranking" not in luna
+    assert "terra mapping" not in luna
+    assert "terra_analysis.v1" in terra
+    assert "instructional_note_draft" in terra
+    assert "strict output schema rule_mapping.v1" in sol
+    assert "terra_analysis.v1" not in sol
 
 
 def test_untrusted_observed_work_is_delimited_escaped_and_after_static_prefix() -> None:

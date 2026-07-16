@@ -11,6 +11,7 @@ from sqlalchemy.exc import DBAPIError
 
 from cognisect.db_models import (
     AcceptedHypothesisRecord,
+    AnalysisStepResultRecord,
     AuditEventRecord,
     Base,
     CaseRecord,
@@ -18,6 +19,7 @@ from cognisect.db_models import (
     DeletionAuditTombstoneRecord,
     GeneratedProposalRecord,
     IdempotencyRecord,
+    InvalidLearnerCommandRecord,
     LearnerReceiptRecord,
     LearnerResponseRecord,
     LearnerTokenRecord,
@@ -36,12 +38,14 @@ from cognisect.workflow import WorkflowState
 
 EXPECTED_TABLES = {
     "accepted_hypotheses",
+    "analysis_step_results",
     "audit_events",
     "cases",
     "compiled_probes",
     "deletion_audit_tombstones",
     "generated_proposals",
     "idempotency_records",
+    "invalid_learner_commands",
     "learner_receipts",
     "learner_responses",
     "learner_tokens",
@@ -60,6 +64,7 @@ def test_metadata_has_every_required_record_type():
         CaseRecord,
         WorkflowRecord,
         AcceptedHypothesisRecord,
+        AnalysisStepResultRecord,
         CompiledProbeRecord,
         ProbePredictionRecord,
         LearnerTokenRecord,
@@ -69,6 +74,7 @@ def test_metadata_has_every_required_record_type():
         TeacherReviewRecord,
         ModelCallRecord,
         IdempotencyRecord,
+        InvalidLearnerCommandRecord,
         AuditEventRecord,
     }
 
@@ -104,6 +110,29 @@ def test_generated_and_teacher_edited_text_are_separate_records():
     assert "edited_text" not in generated_columns
     assert "edited_text" in review_columns
     assert "generated_text" not in review_columns
+
+
+def test_model_attempt_journal_has_stable_content_free_identity_and_staged_results():
+    call_columns = set(inspect(ModelCallRecord).columns.keys())
+    result_columns = set(inspect(AnalysisStepResultRecord).columns.keys())
+    call_uniques = {
+        tuple(constraint.columns.keys())
+        for constraint in inspect(ModelCallRecord).local_table.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+
+    assert {
+        "attempt_ordinal",
+        "purpose",
+        "repair",
+        "client_request_id",
+        "finalized_at",
+    } <= call_columns
+    assert ("workflow_id", "attempt_ordinal") in call_uniques
+    assert {"workflow_id", "attempt_ordinal", "purpose", "schema_version", "payload"} <= (
+        result_columns
+    )
+    assert {"prompt", "response", "observed_work"}.isdisjoint(call_columns)
 
 
 @pytest.mark.postgres

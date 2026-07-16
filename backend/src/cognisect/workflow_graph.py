@@ -15,6 +15,8 @@ from langgraph.types import Command, StateSnapshot, interrupt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from cognisect.lifecycle_lock import acquire_lifecycle_lock
+
 _CHECKPOINT_DELETE_STATEMENTS: Final = (
     ("checkpoint_writes", text("DELETE FROM checkpoint_writes WHERE thread_id = :thread_id")),
     ("checkpoint_blobs", text("DELETE FROM checkpoint_blobs WHERE thread_id = :thread_id")),
@@ -128,12 +130,31 @@ class WorkflowGraphRuntime:
     def _snapshot_result(snapshot: StateSnapshot) -> dict[str, object]:
         return cast("dict[str, object]", dict(snapshot.values))
 
-    async def start_probe_interrupt(self, workflow_id: UUID, thread_id: UUID) -> dict[str, object]:
+    async def start_probe_interrupt(
+        self,
+        workflow_id: UUID,
+        thread_id: UUID,
+        *,
+        _lock_held: bool = False,
+    ) -> dict[str, object]:
         """Start a workflow at the teacher's probe approval interrupt."""
+        if not _lock_held:
+            async with self._session_factory() as session, session.begin():
+                await acquire_lifecycle_lock(session, thread_id)
+                return await self.start_probe_interrupt(
+                    workflow_id,
+                    thread_id,
+                    _lock_held=True,
+                )
         snapshot = await self.get_state(thread_id)
         existing = self._interrupt_result(snapshot, "probe_approval")
         if existing is not None:
             return existing
+        if snapshot.next:
+            return cast(
+                "dict[str, object]",
+                await self._graph.ainvoke(None, self._config(thread_id)),
+            )
         if snapshot.values:
             return self._snapshot_result(snapshot)
         return cast(
@@ -144,11 +165,32 @@ class WorkflowGraphRuntime:
             ),
         )
 
-    async def resume_probe(self, thread_id: UUID, *, approved: bool) -> dict[str, object]:
+    async def resume_probe(
+        self,
+        thread_id: UUID,
+        *,
+        approved: bool,
+        _lock_held: bool = False,
+    ) -> dict[str, object]:
         """Resume the durable probe interrupt with a content-free decision."""
+        if not _lock_held:
+            async with self._session_factory() as session, session.begin():
+                await acquire_lifecycle_lock(session, thread_id)
+                return await self.resume_probe(
+                    thread_id,
+                    approved=approved,
+                    _lock_held=True,
+                )
         snapshot = await self.get_state(thread_id)
         if self._interrupt_result(snapshot, "probe_approval") is None:
-            return self._snapshot_result(snapshot)
+            if snapshot.next:
+                await self._graph.ainvoke(None, self._config(thread_id))
+                snapshot = await self.get_state(thread_id)
+            if self._interrupt_result(snapshot, "probe_approval") is None:
+                if snapshot.next:
+                    msg = "probe approval recovery remains pending"
+                    raise RuntimeError(msg)
+                return self._snapshot_result(snapshot)
         return cast(
             "dict[str, object]",
             await self._graph.ainvoke(
@@ -156,8 +198,22 @@ class WorkflowGraphRuntime:
             ),
         )
 
-    async def resume_after_response(self, workflow_id: UUID, thread_id: UUID) -> dict[str, object]:
+    async def resume_after_response(
+        self,
+        workflow_id: UUID,
+        thread_id: UUID,
+        *,
+        _lock_held: bool = False,
+    ) -> dict[str, object]:
         """Run idempotent response updating, then stop at the review interrupt."""
+        if not _lock_held:
+            async with self._session_factory() as session, session.begin():
+                await acquire_lifecycle_lock(session, thread_id)
+                return await self.resume_after_response(
+                    workflow_id,
+                    thread_id,
+                    _lock_held=True,
+                )
         snapshot = await self.get_state(thread_id)
         existing = self._interrupt_result(snapshot, "teacher_review")
         if existing is not None:
@@ -178,11 +234,32 @@ class WorkflowGraphRuntime:
             ),
         )
 
-    async def resume_review(self, thread_id: UUID, *, decision: str) -> dict[str, object]:
+    async def resume_review(
+        self,
+        thread_id: UUID,
+        *,
+        decision: str,
+        _lock_held: bool = False,
+    ) -> dict[str, object]:
         """Resume the durable teacher review interrupt."""
+        if not _lock_held:
+            async with self._session_factory() as session, session.begin():
+                await acquire_lifecycle_lock(session, thread_id)
+                return await self.resume_review(
+                    thread_id,
+                    decision=decision,
+                    _lock_held=True,
+                )
         snapshot = await self.get_state(thread_id)
         if self._interrupt_result(snapshot, "teacher_review") is None:
-            return self._snapshot_result(snapshot)
+            if snapshot.next:
+                await self._graph.ainvoke(None, self._config(thread_id))
+                snapshot = await self.get_state(thread_id)
+            if self._interrupt_result(snapshot, "teacher_review") is None:
+                if snapshot.next:
+                    msg = "teacher review recovery remains pending"
+                    raise RuntimeError(msg)
+                return self._snapshot_result(snapshot)
         return cast(
             "dict[str, object]",
             await self._graph.ainvoke(
@@ -203,8 +280,10 @@ class WorkflowGraphRuntime:
         """Delete every checkpoint row belonging to one workflow thread."""
         if session is None:
             async with self._session_factory.begin() as owned_session:
+                await acquire_lifecycle_lock(owned_session, thread_id)
                 await self._purge_thread_rows(owned_session, thread_id)
             return
+        await acquire_lifecycle_lock(session, thread_id)
         await self._purge_thread_rows(session, thread_id)
 
     @staticmethod

@@ -18,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from cognisect.model_policy import MODEL_IDS
 
+VERIFIER_TIMEOUT_SECONDS = 30.0
+
 
 class VerificationOutput(BaseModel):
     """Minimal strict structure used only to verify model access and parsing."""
@@ -28,9 +30,18 @@ class VerificationOutput(BaseModel):
     sequence: Annotated[int, Field(strict=True, ge=1, le=3)]
 
 
+def _returned_model_is_allowed(requested: str, returned: str) -> bool:
+    """Allow the exact configured model or its dated provider snapshot."""
+    return returned == requested or returned.startswith(f"{requested}-")
+
+
 async def _verify(api_key: str) -> list[dict[str, object]]:
     calls: list[dict[str, object]] = []
-    async with AsyncOpenAI(api_key=api_key) as client:
+    async with AsyncOpenAI(
+        api_key=api_key,
+        max_retries=0,
+        timeout=VERIFIER_TIMEOUT_SECONDS,
+    ) as client:
         for model_id in MODEL_IDS.values():
             for sequence in range(1, 4):
                 response = await client.responses.parse(
@@ -47,19 +58,27 @@ async def _verify(api_key: str) -> list[dict[str, object]]:
                     metadata={"purpose": "explicit_live_verification"},
                 )
                 parsed = response.output_parsed
+                valid = (
+                    isinstance(parsed, VerificationOutput)
+                    and parsed.verified is True
+                    and parsed.sequence == sequence
+                    and _returned_model_is_allowed(model_id, str(response.model))
+                )
+                if not valid:
+                    msg = "live verification result was invalid"
+                    raise RuntimeError(msg)
                 calls.append(
                     {
                         "requested_model_id": model_id,
                         "returned_model_id": response.model,
                         "request_id": response.id,
                         "sequence": sequence,
-                        "structured_output_valid": (
-                            isinstance(parsed, VerificationOutput)
-                            and parsed.verified is True
-                            and parsed.sequence == sequence
-                        ),
+                        "structured_output_valid": True,
                     }
                 )
+    if len(calls) != len(MODEL_IDS) * 3:
+        msg = "live verification call count was invalid"
+        raise RuntimeError(msg)
     return calls
 
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Literal, Protocol, cast
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -34,6 +34,7 @@ from cognisect.db_models import (
     DeletionAuditTombstoneRecord,
     GeneratedProposalRecord,
     IdempotencyRecord,
+    InvalidLearnerCommandRecord,
     LearnerReceiptRecord,
     LearnerResponseRecord,
     LearnerTokenRecord,
@@ -141,6 +142,8 @@ class AnalyzerResult:
     request_id: str | None = None
     model_calls: tuple[ModelCallTelemetry, ...] = ()
     abstention_cause: AnalyzerAbstentionCause | None = None
+    proposal_draft: str | None = None
+    calls_persisted: bool = False
 
 
 class Analyzer(Protocol):
@@ -419,14 +422,18 @@ class WorkflowService:
                     msg = "resource not found"
                     raise OwnedResourceNotFoundError(msg)
                 case, workflow = row
-                await transition_workflow(
-                    session,
-                    workflow_id=workflow.id,
-                    owner_id=owner.id,
-                    expected_version=expected_version,
-                    requested_state=WorkflowState.ANALYZING,
-                    event_key=f"{idempotency_key}:analysis-started",
-                )
+                if not (
+                    workflow.state == WorkflowState.ANALYZING
+                    and workflow.version == expected_version + 1
+                ):
+                    await transition_workflow(
+                        session,
+                        workflow_id=workflow.id,
+                        owner_id=owner.id,
+                        expected_version=expected_version,
+                        requested_state=WorkflowState.ANALYZING,
+                        event_key=f"{idempotency_key}:analysis-started",
+                    )
                 analysis_input = AnalysisInput(
                     case_id=case.id,
                     workflow_id=workflow.id,
@@ -495,8 +502,8 @@ class WorkflowService:
             workflow = await get_owned_workflow(
                 session, workflow_id=analysis_input.workflow_id, owner_id=owner.id
             )
-            if analyzer_result.model_calls:
-                for call in analyzer_result.model_calls:
+            if analyzer_result.model_calls and not analyzer_result.calls_persisted:
+                for attempt_ordinal, call in enumerate(analyzer_result.model_calls, start=1):
                     session.add(
                         ModelCallRecord(
                             case_id=case_id,
@@ -506,6 +513,15 @@ class WorkflowService:
                             requested_model_id=call.requested_model_id,
                             returned_model_id=call.returned_model_id,
                             request_id=call.request_id,
+                            attempt_ordinal=attempt_ordinal,
+                            purpose="legacy",
+                            repair=False,
+                            client_request_id=str(
+                                uuid5(
+                                    NAMESPACE_URL,
+                                    f"cognisect:{workflow.id}:{attempt_ordinal}:legacy",
+                                )
+                            ),
                             status=call.status,
                             latency_ms=call.latency_ms,
                             input_tokens=call.input_tokens,
@@ -517,9 +533,10 @@ class WorkflowService:
                             prompt_hash=call.prompt_hash,
                             route_version=call.route_version,
                             prompt_cache_key=call.prompt_cache_key,
+                            finalized_at=utc_now(),
                         )
                     )
-            else:
+            elif not analyzer_result.calls_persisted:
                 session.add(
                     ModelCallRecord(
                         case_id=case_id,
@@ -529,6 +546,15 @@ class WorkflowService:
                         requested_model_id=analyzer_result.model_id,
                         returned_model_id=analyzer_result.model_snapshot,
                         request_id=analyzer_result.request_id,
+                        attempt_ordinal=1,
+                        purpose="legacy",
+                        repair=False,
+                        client_request_id=str(
+                            uuid5(
+                                NAMESPACE_URL,
+                                f"cognisect:{workflow.id}:1:legacy",
+                            )
+                        ),
                         status="completed",
                         latency_ms=0,
                         input_tokens=0,
@@ -539,6 +565,7 @@ class WorkflowService:
                         prompt_hash="0" * 64,
                         route_version="legacy.task2",
                         prompt_cache_key="legacy.task2",
+                        finalized_at=utc_now(),
                     )
                 )
             workflow.model_snapshot = analyzer_result.model_snapshot
@@ -581,6 +608,14 @@ class WorkflowService:
                 return updated
 
             compiled_probe = cast("CompiledProbe", compiler_result)
+            if analyzer_result.proposal_draft is not None:
+                session.add(
+                    GeneratedProposalRecord(
+                        workflow_id=workflow.id,
+                        generated_text=analyzer_result.proposal_draft,
+                        evidence=[],
+                    )
+                )
             hypothesis_records: dict[int, AcceptedHypothesisRecord] = {}
             for hypothesis in accepted:
                 record = AcceptedHypothesisRecord(
@@ -637,7 +672,7 @@ class WorkflowService:
             await self._graph_runtime.start_probe_interrupt(updated.id, updated.thread_id)
         return updated
 
-    async def approve_probe(
+    async def approve_probe(  # noqa: C901, PLR0912, PLR0915
         self,
         *,
         owner_secret: str,
@@ -648,6 +683,35 @@ class WorkflowService:
         """Approve a committed probe and create its separately hashed learner token."""
         scope = f"workflows:{workflow_id}:probe-approval"
         request_fingerprint = _fingerprint(request.model_dump(mode="json"))
+        if self._graph_runtime is not None and request.approved:
+            gate_workflow: WorkflowRecord | None = None
+            async with self._sessions() as session:
+                owner = await self._owner_for_secret(session, owner_secret)
+                replay = await self._idempotency_replay(
+                    session,
+                    owner_id=owner.id,
+                    scope=scope,
+                    idempotency_key=idempotency_key,
+                    request_fingerprint=request_fingerprint,
+                )
+                if replay is None:
+                    gate_workflow = await get_owned_workflow(
+                        session,
+                        workflow_id=workflow_id,
+                        owner_id=owner.id,
+                    )
+            if gate_workflow is not None:
+                gate = await self._graph_runtime.start_probe_interrupt(
+                    gate_workflow.id,
+                    gate_workflow.thread_id,
+                )
+                if not (
+                    isinstance(gate, dict)
+                    and isinstance(gate.get("__interrupt__"), tuple)
+                    and gate["__interrupt__"]
+                ):
+                    msg = "probe approval gate is not ready"
+                    raise ReplayConflictError(msg)
         result: ApprovedProbe
         thread_id: UUID
         async with self._sessions() as session, session.begin():
@@ -867,31 +931,31 @@ class WorkflowService:
                     GeneratedProposalRecord.workflow_id == workflow.id
                 )
             )
+            response = await session.scalar(
+                select(LearnerResponseRecord).where(
+                    LearnerResponseRecord.workflow_id == workflow.id
+                )
+            )
+            if response is None:
+                msg = "learner response not found"
+                raise LearnerTokenNotFoundError(msg)
+            probe = await self._compiled_probe(session, workflow.id)
+            evidence = update_evidence(
+                probe,
+                LearnerResponseV1(
+                    answer=response.answer,
+                    rationale=response.rationale,
+                ),
+            )
+            evidence_payload = [
+                {
+                    "template_id": item.template_id,
+                    "rank": item.rank,
+                    "status": item.status,
+                }
+                for item in evidence.evidence
+            ]
             if proposal is None:
-                response = await session.scalar(
-                    select(LearnerResponseRecord).where(
-                        LearnerResponseRecord.workflow_id == workflow.id
-                    )
-                )
-                if response is None:
-                    msg = "learner response not found"
-                    raise LearnerTokenNotFoundError(msg)
-                probe = await self._compiled_probe(session, workflow.id)
-                evidence = update_evidence(
-                    probe,
-                    LearnerResponseV1(
-                        answer=response.answer,
-                        rationale=response.rationale,
-                    ),
-                )
-                evidence_payload = [
-                    {
-                        "template_id": item.template_id,
-                        "rank": item.rank,
-                        "status": item.status,
-                    }
-                    for item in evidence.evidence
-                ]
                 session.add(
                     GeneratedProposalRecord(
                         workflow_id=workflow.id,
@@ -903,6 +967,8 @@ class WorkflowService:
                     )
                 )
                 await session.flush()
+            else:
+                proposal.evidence = evidence_payload
 
             await transition_workflow(
                 session,
@@ -928,6 +994,14 @@ class WorkflowService:
         thread_id: UUID
         async with self._sessions() as session, session.begin():
             token_record = await self._learner_token(session, token, for_update=True)
+            invalid_command = await session.scalar(
+                select(InvalidLearnerCommandRecord).where(
+                    InvalidLearnerCommandRecord.learner_token_id == token_record.id
+                )
+            )
+            if invalid_command is not None:
+                msg = "learner response already recorded"
+                raise ReplayConflictError(msg)
             existing_response = await session.scalar(
                 select(LearnerResponseRecord).where(
                     LearnerResponseRecord.learner_token_id == token_record.id
@@ -1000,6 +1074,60 @@ class WorkflowService:
         else:
             await self._graph_runtime.resume_after_response(workflow_id, thread_id)
         return result
+
+    async def submit_invalid_learner_answer(
+        self,
+        *,
+        token: str,
+        idempotency_key: str,
+    ) -> LearnerReceipt:
+        """Abstain once for an invalid body without accepting or retaining its content."""
+        key_hash = hash_payload(idempotency_key.encode())
+        async with self._sessions() as session, session.begin():
+            token_record = await self._learner_token(session, token, for_update=True)
+            existing = await session.scalar(
+                select(InvalidLearnerCommandRecord).where(
+                    InvalidLearnerCommandRecord.learner_token_id == token_record.id
+                )
+            )
+            if existing is not None:
+                if existing.idempotency_key_hash != key_hash:
+                    msg = "learner response already recorded"
+                    raise ReplayConflictError(msg)
+                return LearnerReceipt(
+                    receipt_id=existing.id,
+                    accepted_at=existing.accepted_at,
+                )
+            valid_response = await session.scalar(
+                select(LearnerResponseRecord).where(
+                    LearnerResponseRecord.learner_token_id == token_record.id
+                )
+            )
+            if valid_response is not None:
+                msg = "learner response already recorded"
+                raise ReplayConflictError(msg)
+            workflow = await session.get(WorkflowRecord, token_record.workflow_id)
+            if workflow is None:
+                msg = "learner link not found"
+                raise LearnerTokenNotFoundError(msg)
+            accepted_at = _now_utc(self._clock)
+            record = InvalidLearnerCommandRecord(
+                workflow_id=workflow.id,
+                learner_token_id=token_record.id,
+                idempotency_key_hash=key_hash,
+                accepted_at=accepted_at,
+            )
+            session.add(record)
+            await session.flush()
+            await transition_workflow(
+                session,
+                workflow_id=workflow.id,
+                owner_id=workflow.owner_id,
+                expected_version=workflow.version,
+                requested_state=WorkflowState.ABSTAINED,
+                event_key=f"{idempotency_key}:learner:invalid-answer",
+            )
+            return LearnerReceipt(receipt_id=record.id, accepted_at=accepted_at)
 
     async def get_workflow(self, owner_secret: str, workflow_id: UUID) -> WorkflowRecord:
         """Read one owned teacher workflow or a non-enumerating miss."""

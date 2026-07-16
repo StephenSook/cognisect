@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import inspect, select
+from sqlalchemy import func, inspect, select
 
 import cognisect.api as api_module
 from cognisect.api_models import CreateCaseRequest
 from cognisect.config import Settings
 from cognisect.database import create_session_factory
-from cognisect.db_models import ModelCallRecord
+from cognisect.db_models import AnalysisStepResultRecord, ModelCallRecord, WorkflowRecord
 from cognisect.model_analyzer import ResponsesAnalyzer
+from cognisect.model_attempts import PostgresAttemptJournal
+from cognisect.model_policy import TerraAnalysisV1
+from cognisect.models import RuleInstanceV1, RuleMappingV1
+from cognisect.repositories import transition_workflow
 from cognisect.services import (
     AnalysisInput,
     AnalyzerResult,
@@ -58,6 +63,7 @@ def test_build_app_installs_real_analyzer_when_production_settings_are_strict(mo
     app = api_module.build_app()
 
     assert isinstance(app.state.workflow_service._analyzer, ResponsesAnalyzer)
+    assert isinstance(app.state.workflow_service._analyzer._journal, PostgresAttemptJournal)
 
 
 def test_model_call_record_has_complete_content_free_telemetry_columns() -> None:
@@ -154,12 +160,155 @@ async def test_typed_model_abstention_persists_all_calls_and_abstains_not_fails(
 
 
 class ForbiddenResponses:
-    async def parse(self, **_kwargs):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
         raise AssertionError("cost preflight must prevent the provider request")
 
 
 class ForbiddenClient:
-    responses = ForbiddenResponses()
+    def __init__(self) -> None:
+        self.responses = ForbiddenResponses()
+
+
+class OneTerraResponses:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def create(self, **_kwargs):
+        self.calls += 1
+        mapping = RuleMappingV1(
+            schema_version="rule_mapping.v1",
+            hypotheses=[
+                RuleInstanceV1(
+                    template_id=template_id,
+                    evidence_refs=["observed_work"],
+                    description=f"Bounded alternative {rank}",
+                    rank=rank,
+                )
+                for rank, template_id in enumerate(
+                    ("add_subtrahend", "absolute_difference"), start=1
+                )
+            ],
+        )
+        output = TerraAnalysisV1(
+            schema_version="terra_analysis.v1",
+            mapping=mapping,
+            instructional_note_draft="Two hypotheses remain; teacher review is required.",
+        )
+        return SimpleNamespace(
+            id="resp_crash_gap",
+            model="gpt-5.6-terra",
+            output=[
+                SimpleNamespace(
+                    type="message",
+                    content=[SimpleNamespace(type="output_text", text=output.model_dump_json())],
+                )
+            ],
+            usage=SimpleNamespace(
+                input_tokens=100,
+                output_tokens=20,
+                input_tokens_details=SimpleNamespace(cached_tokens=0, cache_write_tokens=0),
+                output_tokens_details=SimpleNamespace(reasoning_tokens=0),
+            ),
+        )
+
+
+class OneTerraClient:
+    def __init__(self) -> None:
+        self.responses = OneTerraResponses()
+
+
+@pytest.mark.postgres
+async def test_analysis_recovers_finalized_artifact_after_process_crash_without_redispatch(
+    db_engine, db_session
+) -> None:
+    del db_session
+    settings = _settings(app_env="test", public_app_url="http://localhost:3000")
+    sessions = create_session_factory(db_engine)
+    journal = PostgresAttemptJournal(sessions)
+    provider = OneTerraClient()
+    analyzer = ResponsesAnalyzer(settings, client=provider, journal=journal)
+    service = WorkflowService(sessions, settings, analyzer=analyzer)
+    created = await service.create_case(
+        CreateCaseRequest(
+            source_tier="educator_authored",
+            problem={"a": -3, "b": 5},
+            observed_work="deidentified evidence",
+            deidentified_attestation=False,
+        ),
+        idempotency_key="crash-create",
+    )
+    async with sessions() as session, session.begin():
+        workflow = await session.get(WorkflowRecord, created.workflow_id)
+        assert workflow is not None
+        await transition_workflow(
+            session,
+            workflow_id=workflow.id,
+            owner_id=workflow.owner_id,
+            expected_version=0,
+            requested_state=WorkflowState.ANALYZING,
+            event_key="crash-analysis-started",
+        )
+    discarded = await analyzer.analyze(
+        AnalysisInput(
+            case_id=created.case_id,
+            workflow_id=created.workflow_id,
+            source_tier="educator_authored",
+            original_a=-3,
+            original_b=5,
+            observed_work="deidentified evidence",
+        )
+    )
+    assert discarded.mapping is not None
+    assert provider.responses.calls == 1
+
+    recovered_provider = ForbiddenClient()
+    recovered_service = WorkflowService(
+        sessions,
+        settings,
+        analyzer=ResponsesAnalyzer(
+            settings,
+            client=recovered_provider,
+            journal=PostgresAttemptJournal(sessions),
+        ),
+    )
+    recovered = await recovered_service.analyze_case(
+        owner_secret=created.owner_secret,
+        case_id=created.case_id,
+        expected_version=0,
+        idempotency_key="crash-analysis",
+    )
+
+    assert recovered.state == WorkflowState.PROBE_READY
+    assert recovered_provider.responses.calls == []
+    async with sessions() as session:
+        assert await session.scalar(select(func.count(ModelCallRecord.id))) == 1
+        assert await session.scalar(select(func.count(AnalysisStepResultRecord.id))) == 1
+
+    async with sessions() as session, session.begin():
+        call = await session.scalar(select(ModelCallRecord))
+        assert call is not None
+        call.prompt_hash = "b" * 64
+    mismatch_provider = ForbiddenClient()
+    mismatch = await ResponsesAnalyzer(
+        settings,
+        client=mismatch_provider,
+        journal=PostgresAttemptJournal(sessions),
+    ).analyze(
+        AnalysisInput(
+            case_id=created.case_id,
+            workflow_id=created.workflow_id,
+            source_tier="educator_authored",
+            original_a=-3,
+            original_b=5,
+            observed_work="deidentified evidence",
+        )
+    )
+    assert mismatch.abstention_cause == "policy_failure"
+    assert mismatch_provider.responses.calls == []
 
 
 @pytest.mark.postgres

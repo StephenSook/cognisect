@@ -28,7 +28,7 @@ from cognisect.interpreter import COMPILER_VERSION, REGISTRY_VERSION
 from cognisect.workflow import WorkflowState
 
 SCHEMA_VERSION = "workflow.v1"
-PROMPT_VERSION = "analysis_prompt.v1"
+PROMPT_VERSION = "analysis_prompt.v2"
 
 
 def utc_now() -> datetime:
@@ -263,6 +263,28 @@ class LearnerReceiptRecord(Base):
     )
 
 
+class InvalidLearnerCommandRecord(Base):
+    """Content-free receipt for one token-authorized invalid-answer command."""
+
+    __tablename__ = "invalid_learner_commands"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    workflow_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        unique=True,
+    )
+    learner_token_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("learner_tokens.id", ondelete="CASCADE"),
+        unique=True,
+    )
+    idempotency_key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
 class GeneratedProposalRecord(Base):
     """Generated teacher proposal kept separate from any teacher edit."""
 
@@ -304,6 +326,13 @@ class ModelCallRecord(Base):
     """Bounded model-call telemetry without raw prompts or responses."""
 
     __tablename__ = "model_calls"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_id",
+            "attempt_ordinal",
+            name="uq_model_calls_workflow_attempt_ordinal",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     case_id: Mapped[UUID] = mapped_column(
@@ -317,6 +346,10 @@ class ModelCallRecord(Base):
     requested_model_id: Mapped[str] = mapped_column(String(120), nullable=False)
     returned_model_id: Mapped[str | None] = mapped_column(String(120))
     request_id: Mapped[str | None] = mapped_column(String(160))
+    attempt_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(16), nullable=False)
+    repair: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    client_request_id: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -328,6 +361,34 @@ class ModelCallRecord(Base):
     prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     route_version: Mapped[str] = mapped_column(String(48), nullable=False)
     prompt_cache_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class AnalysisStepResultRecord(Base):
+    """Validated bounded route artifact staged separately from call telemetry."""
+
+    __tablename__ = "analysis_step_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_id",
+            "attempt_ordinal",
+            name="uq_analysis_step_results_workflow_attempt_ordinal",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    workflow_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        index=True,
+    )
+    attempt_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(16), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

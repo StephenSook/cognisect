@@ -7,10 +7,16 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Final, Literal, Self
 
-from pydantic import Field, StringConstraints, ValidationError, model_validator
+from pydantic import (
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from cognisect.api_models import CreateCaseRequest
-from cognisect.models import StrictContractModel
+from cognisect.models import RuleMappingV1, StrictContractModel
 
 MODEL_IDS: Final = {
     "luna": "gpt-5.6-luna",
@@ -75,6 +81,18 @@ ADVERSARIAL_REVIEW_MARKERS: Final = (
 
 EvidenceRef = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=80)]
 EvidenceText = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=10_000)]
+InstructionalNoteDraft = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=2_000),
+]
+_FORBIDDEN_NOTE_CLAIMS = (
+    "confirm",
+    "diagnos",
+    "confidence",
+    "certain",
+    "proved",
+    "stable misconception",
+)
 
 
 class NormalizedEvidenceSegment(StrictContractModel):
@@ -98,6 +116,24 @@ class NormalizedEvidenceV1(StrictContractModel):
             msg = "normalized evidence refs must be unique"
             raise ValueError(msg)
         return self
+
+
+class TerraAnalysisV1(StrictContractModel):
+    """Internal same-call Terra mapping and cautious instructional-note draft."""
+
+    schema_version: Literal["terra_analysis.v1"]
+    mapping: RuleMappingV1
+    instructional_note_draft: InstructionalNoteDraft
+
+    @field_validator("instructional_note_draft")
+    @classmethod
+    def note_uses_cautious_language(cls, value: str) -> str:
+        """Reject diagnosis, confidence, and certainty claims from model output."""
+        lowered = value.casefold()
+        if any(claim in lowered for claim in _FORBIDDEN_NOTE_CLAIMS):
+            msg = "instructional note draft must remain cautious"
+            raise ValueError(msg)
+        return value
 
 
 @dataclass(frozen=True, slots=True)
