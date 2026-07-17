@@ -15,17 +15,18 @@ The machine-readable sources are `data/security/security-audit.v1.json` and
 
 ### Authentication and authorization — pass
 
-- `backend/src/cognisect/api.py:67` validates the owner capability shape and
+- `backend/src/cognisect/api.py:108` validates the owner capability shape and
   returns the same non-enumerating 404 for missing or invalid authority.
-- `backend/src/cognisect/api.py:260` bootstraps before educational mutation and
+- `backend/src/cognisect/api.py:350` consumes the public quota before owner
+  bootstrap, and lines 375-391 bootstrap before educational mutation and
   sets a Secure, HttpOnly, SameSite=Lax production cookie.
-- `backend/src/cognisect/services.py:276` looks up only a purpose-hashed owner
+- `backend/src/cognisect/services.py:396` looks up only a purpose-hashed owner
   capability. `backend/src/cognisect/repositories.py` scopes workflow access by
   owner before any read or transition.
-- `backend/src/cognisect/services.py:897` derives a separate learner capability,
-  persists only its hash, and uses a row lock for submission.
-- `frontend/src/lib/backend-proxy.ts:132` never forwards a teacher owner cookie to
-  a learner response path.
+- `backend/src/cognisect/services.py:1021` derives a separate learner capability,
+  line 1027 persists only its hash, and line 1076 applies the submission row lock.
+- `frontend/src/lib/backend-proxy.ts:168` reads the teacher cookie, and line 174
+  excludes it from every learner response path.
 
 The owner/learner/cross-owner matrix, missing-authority equivalence, expiration,
 GET non-consumption, replay, stale version, and deletion tests passed.
@@ -72,9 +73,10 @@ and constant-time comparison. `backend/src/cognisect/safe_logging.py` allowlists
 only event name, method, route template, status, state, model ID, request ID,
 latency, and token/cost metadata. Uvicorn access logging is disabled in production.
 
-The repository hygiene scanner passed. npm audit and pip-audit each reported zero
-known vulnerabilities for the installed locked release dependencies. A zero result
-means no advisory match at audit time, not proof that every dependency is safe.
+The repository hygiene scanner passed. On 2026-07-17, npm audit and pip-audit each
+reported zero known vulnerabilities for the installed locked dependency graphs. A
+zero result means no advisory match at audit time, not proof that every dependency
+is safe.
 
 Public case creation uses a Postgres fixed-window quota. At Vercel, the platform
 client address is immediately converted into a domain-separated HMAC bucket; the
@@ -122,10 +124,17 @@ uv run pytest backend/tests -q
 uv run python scripts/check_public_repo.py
 uv run python scripts/run_production_stress.py --check
 uv run alembic check
-uv run --with pip-audit pip-audit --local --skip-editable
-npm audit --audit-level=high
+uv export --frozen --no-hashes --no-dev --no-emit-project | uvx --python 3.12 pip-audit -r /dev/stdin
+npm audit --audit-level=high --prefix frontend
+npm audit --audit-level=high --prefix frontend/tools/openapi-generator
+uv run python scripts/generate_dependency_licenses.py --check
+cd frontend && npm ci && npm ci --prefix tools/openapi-generator && npm run check:peers
 npm run test:e2e
 ```
+
+CI enforces the frozen production Python audit, both exact npm lockfile audits,
+full npm peer-tree validity, and generated license-inventory drift. These checks
+are bounded to the resolved graphs and advisory data available when they run.
 
 ## Data lifecycle and residual limits
 

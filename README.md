@@ -130,6 +130,7 @@ and [security report](docs/SECURITY.md) for methods and limitations.
 ## Quickstart
 
 Python 3.12, Node 22, `uv`, and Docker are required.
+CI uses Node 22.22.2, and both frontend manifests record npm 10.9.4.
 
 ```sh
 git clone https://github.com/StephenSook/cognisect.git
@@ -173,11 +174,24 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+npm ci --prefix tools/openapi-generator
+npm run check:peers
+npm run check:api
+npm audit --audit-level=high
+npm audit --audit-level=high --prefix tools/openapi-generator
+
+cd ..
+uv export --frozen --no-hashes --no-dev --no-emit-project | uvx --python 3.12 pip-audit -r /dev/stdin
+uv run python scripts/generate_dependency_licenses.py --check
 ```
 
 CI runs six jobs covering hygiene and full-history secret scanning, backend
 quality, Postgres integration and property tests, frontend checks, Playwright
 accessibility journeys, OpenAPI drift, migrations, and container builds.
+The hygiene job installs both exact npm lockfiles, rejects invalid peer trees,
+checks both npm graphs at high audit severity, scans the frozen production Python
+export, and rejects dependency-license inventory drift. Audit results describe the
+locked graphs at execution time; they are not a claim that dependencies are safe.
 
 ## Documentation
 

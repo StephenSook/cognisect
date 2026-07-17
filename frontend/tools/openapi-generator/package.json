@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "npm@10.9.4",
   "scripts": {
-    "generate": "node --import ./register-loader.mjs generate.mjs",
-    "check": "node --import ./register-loader.mjs generate.mjs --check"
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check"
   },
   "devDependencies": {
     "openapi-typescript": "7.13.0",

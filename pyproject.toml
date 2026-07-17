@@ -25,7 +25,6 @@ dependencies = [
 [dependency-groups]
 dev = [
   "asgi-lifespan==2.1.0",
-  "freezegun==1.5.5",
   "hypothesis==6.156.6",
   "mypy==2.3.0",
   "pytest==9.1.1",

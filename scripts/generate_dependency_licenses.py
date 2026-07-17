@@ -45,13 +45,18 @@ def _python_rows() -> list[tuple[str, str, str]]:
 
 
 def _node_rows() -> list[tuple[str, str, str]]:
-    lock = json.loads((ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8"))
     rows: list[tuple[str, str, str]] = []
-    for path, package in lock["packages"].items():
-        if "node_modules/" not in path or "version" not in package:
-            continue
-        name = path.rsplit("node_modules/", 1)[-1]
-        rows.append((name, package["version"], package.get("license", "REVIEW REQUIRED")))
+    lock_paths = (
+        ROOT / "frontend" / "package-lock.json",
+        ROOT / "frontend" / "tools" / "openapi-generator" / "package-lock.json",
+    )
+    for lock_path in lock_paths:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        for path, package in lock["packages"].items():
+            if "node_modules/" not in path or "version" not in package:
+                continue
+            name = path.rsplit("node_modules/", 1)[-1]
+            rows.append((name, package["version"], package.get("license", "REVIEW REQUIRED")))
     return sorted(rows)
 
 
@@ -71,7 +76,8 @@ def render() -> str:
     return (
         "# Dependency license inventory\n\n"
         "Generated from exact direct Python requirements, installed Python package "
-        "metadata, and the complete `frontend/package-lock.json` npm graph. Locked "
+        "metadata, the application `frontend/package-lock.json`, and the isolated "
+        "OpenAPI generator lockfile. Locked "
         "Python transitive versions remain in `uv.lock`. This is an inventory, not legal advice; "
         "package license files remain authoritative. Regenerate with "
         "`uv run python scripts/generate_dependency_licenses.py`.\n\n"

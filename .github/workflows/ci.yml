@@ -47,14 +47,21 @@ jobs:
       - run: uv sync --frozen
       - run: npm ci
         working-directory: frontend
+      - run: npm ci
+        working-directory: frontend/tools/openapi-generator
+      - run: npm run check:peers
+        working-directory: frontend
       - run: uv run python scripts/check_public_repo.py
       - run: uv run python scripts/validate_provenance.py
       - run: uv run python scripts/run_offline_evaluation.py --check
       - run: uv run python scripts/run_model_benchmark.py --check
       - run: uv run python scripts/run_production_stress.py --check
       - run: uv run python scripts/generate_dependency_licenses.py --check
+      - run: uv export --frozen --no-hashes --no-dev --no-emit-project | uvx --python 3.12 pip-audit -r /dev/stdin
       - run: npm audit --audit-level=high
         working-directory: frontend
+      - run: npm audit --audit-level=high
+        working-directory: frontend/tools/openapi-generator
 
   backend-quality:
     name: Backend Ruff and mypy
@@ -199,6 +206,8 @@ jobs:
       - run: uv sync --frozen
       - run: npm ci
         working-directory: frontend
+      - run: npm ci
+        working-directory: frontend/tools/openapi-generator
       - run: uv run pytest backend/tests/test_openapi.py -q
       - run: npm run check:api
         working-directory: frontend

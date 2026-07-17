@@ -1,8 +1,8 @@
 # Dependency license inventory
 
-Generated from exact direct Python requirements, installed Python package metadata, and the complete `frontend/package-lock.json` npm graph. Locked Python transitive versions remain in `uv.lock`. This is an inventory, not legal advice; package license files remain authoritative. Regenerate with `uv run python scripts/generate_dependency_licenses.py`.
+Generated from exact direct Python requirements, installed Python package metadata, the application `frontend/package-lock.json`, and the isolated OpenAPI generator lockfile. Locked Python transitive versions remain in `uv.lock`. This is an inventory, not legal advice; package license files remain authoritative. Regenerate with `uv run python scripts/generate_dependency_licenses.py`.
 
-Direct Python packages: 19. Locked npm packages: 595.
+Direct Python packages: 18. Locked npm packages: 592.
 
 ## Direct Python requirements
 
@@ -11,7 +11,6 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `alembic` | `1.18.5` | MIT |
 | `asgi-lifespan` | `2.1.0` | MIT |
 | `fastapi` | `0.139.0` | MIT |
-| `freezegun` | `1.5.5` | Apache-2.0 |
 | `httpx` | `0.28.1` | OSI Approved :: BSD License |
 | `hypothesis` | `6.156.6` | MPL-2.0 |
 | `langgraph` | `1.2.9` | MIT |
@@ -39,6 +38,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `@asamuzakjp/nwsapi` | `2.3.9` | MIT |
 | `@axe-core/playwright` | `4.12.1` | MPL-2.0 |
 | `@babel/code-frame` | `7.29.7` | MIT |
+| `@babel/code-frame` | `7.29.7` | MIT |
 | `@babel/compat-data` | `7.29.7` | MIT |
 | `@babel/core` | `7.29.7` | MIT |
 | `@babel/generator` | `7.29.7` | MIT |
@@ -47,6 +47,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `@babel/helper-module-imports` | `7.29.7` | MIT |
 | `@babel/helper-module-transforms` | `7.29.7` | MIT |
 | `@babel/helper-string-parser` | `7.29.7` | MIT |
+| `@babel/helper-validator-identifier` | `7.29.7` | MIT |
 | `@babel/helper-validator-identifier` | `7.29.7` | MIT |
 | `@babel/helper-validator-option` | `7.29.7` | MIT |
 | `@babel/helpers` | `7.29.7` | MIT |
@@ -72,11 +73,16 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `@eslint-community/eslint-utils` | `4.9.1` | MIT |
 | `@eslint-community/regexpp` | `4.12.2` | MIT |
 | `@eslint/compat` | `2.1.0` | Apache-2.0 |
-| `@eslint/config-array` | `0.23.5` | Apache-2.0 |
-| `@eslint/config-helpers` | `0.6.0` | Apache-2.0 |
+| `@eslint/config-array` | `0.21.2` | Apache-2.0 |
+| `@eslint/config-helpers` | `0.4.2` | Apache-2.0 |
+| `@eslint/core` | `0.17.0` | Apache-2.0 |
+| `@eslint/core` | `0.17.0` | Apache-2.0 |
+| `@eslint/core` | `0.17.0` | Apache-2.0 |
 | `@eslint/core` | `1.2.1` | Apache-2.0 |
-| `@eslint/object-schema` | `3.0.5` | Apache-2.0 |
-| `@eslint/plugin-kit` | `0.7.2` | Apache-2.0 |
+| `@eslint/eslintrc` | `3.3.6` | MIT |
+| `@eslint/js` | `9.39.5` | MIT |
+| `@eslint/object-schema` | `2.1.7` | Apache-2.0 |
+| `@eslint/plugin-kit` | `0.4.1` | Apache-2.0 |
 | `@exodus/bytes` | `1.15.1` | MIT |
 | `@fontsource-variable/jetbrains-mono` | `5.2.8` | OFL-1.1 |
 | `@fontsource-variable/lexend` | `5.2.11` | OFL-1.1 |
@@ -163,7 +169,6 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `@types/aria-query` | `5.0.4` | MIT |
 | `@types/chai` | `5.2.3` | MIT |
 | `@types/deep-eql` | `4.0.2` | MIT |
-| `@types/esrecurse` | `4.3.1` | MIT |
 | `@types/estree` | `1.0.9` | MIT |
 | `@types/json-schema` | `7.0.15` | MIT |
 | `@types/json5` | `0.0.29` | MIT |
@@ -181,26 +186,6 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `@typescript-eslint/typescript-estree` | `8.64.0` | MIT |
 | `@typescript-eslint/utils` | `8.64.0` | MIT |
 | `@typescript-eslint/visitor-keys` | `8.64.0` | MIT |
-| `@typescript/typescript-aix-ppc64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-darwin-arm64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-darwin-x64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-freebsd-arm64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-freebsd-x64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-arm` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-arm64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-loong64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-mips64el` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-ppc64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-riscv64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-s390x` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-linux-x64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-netbsd-arm64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-netbsd-x64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-openbsd-arm64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-openbsd-x64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-sunos-x64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-win32-arm64` | `7.0.2` | Apache-2.0 |
-| `@typescript/typescript-win32-x64` | `7.0.2` | Apache-2.0 |
 | `@unrs/resolver-binding-android-arm-eabi` | `1.12.2` | MIT |
 | `@unrs/resolver-binding-android-arm64` | `1.12.2` | MIT |
 | `@unrs/resolver-binding-darwin-arm64` | `1.12.2` | MIT |
@@ -236,10 +221,9 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `ajv` | `6.15.0` | MIT |
 | `ansi-colors` | `4.1.3` | MIT |
 | `ansi-regex` | `5.0.1` | MIT |
-| `ansi-regex` | `5.0.1` | MIT |
-| `ansi-regex` | `5.0.1` | MIT |
 | `ansi-styles` | `4.3.0` | MIT |
 | `ansi-styles` | `5.2.0` | MIT |
+| `argparse` | `2.0.1` | Python-2.0 |
 | `argparse` | `2.0.1` | Python-2.0 |
 | `aria-query` | `5.3.0` | Apache-2.0 |
 | `aria-query` | `5.3.2` | Apache-2.0 |
@@ -259,13 +243,9 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `axobject-query` | `4.1.0` | Apache-2.0 |
 | `balanced-match` | `1.0.2` | MIT |
 | `balanced-match` | `1.0.2` | MIT |
-| `balanced-match` | `1.0.2` | MIT |
-| `balanced-match` | `1.0.2` | MIT |
 | `balanced-match` | `4.0.4` | MIT |
 | `baseline-browser-mapping` | `2.10.43` | Apache-2.0 |
 | `bidi-js` | `1.0.3` | MIT |
-| `brace-expansion` | `1.1.16` | MIT |
-| `brace-expansion` | `1.1.16` | MIT |
 | `brace-expansion` | `1.1.16` | MIT |
 | `brace-expansion` | `2.1.2` | MIT |
 | `brace-expansion` | `5.0.7` | MIT |
@@ -274,9 +254,11 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `call-bind` | `1.0.9` | MIT |
 | `call-bind-apply-helpers` | `1.0.2` | MIT |
 | `call-bound` | `1.0.4` | MIT |
+| `callsites` | `3.1.0` | MIT |
 | `camelcase` | `5.3.1` | MIT |
 | `caniuse-lite` | `1.0.30001806` | CC-BY-4.0 |
 | `chai` | `6.2.2` | MIT |
+| `chalk` | `4.1.2` | MIT |
 | `change-case` | `5.4.4` | MIT |
 | `client-only` | `0.0.1` | MIT |
 | `cliui` | `6.0.0` | ISC |
@@ -298,6 +280,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `debug` | `3.2.7` | MIT |
 | `debug` | `3.2.7` | MIT |
 | `debug` | `4.4.3` | MIT |
+| `debug` | `4.4.3` | MIT |
 | `decamelize` | `1.2.0` | MIT |
 | `decimal.js` | `10.6.0` | MIT |
 | `deep-is` | `0.1.4` | MIT |
@@ -310,7 +293,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `dom-accessibility-api` | `0.5.16` | MIT |
 | `dom-accessibility-api` | `0.6.3` | MIT |
 | `dunder-proto` | `1.0.1` | MIT |
-| `electron-to-chromium` | `1.5.392` | ISC |
+| `electron-to-chromium` | `1.5.393` | ISC |
 | `emoji-regex` | `8.0.0` | MIT |
 | `emoji-regex` | `9.2.2` | MIT |
 | `entities` | `8.0.0` | BSD-2-Clause |
@@ -326,7 +309,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `es-to-primitive` | `1.3.4` | MIT |
 | `escalade` | `3.2.0` | MIT |
 | `escape-string-regexp` | `4.0.0` | MIT |
-| `eslint` | `10.7.0` | MIT |
+| `eslint` | `9.39.5` | MIT |
 | `eslint-config-next` | `16.2.10` | MIT |
 | `eslint-import-resolver-node` | `0.3.10` | MIT |
 | `eslint-import-resolver-typescript` | `3.10.1` | ISC |
@@ -335,16 +318,18 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `eslint-plugin-jsx-a11y` | `6.10.2` | MIT |
 | `eslint-plugin-react` | `7.37.5` | MIT |
 | `eslint-plugin-react-hooks` | `7.1.1` | MIT |
-| `eslint-scope` | `9.1.2` | BSD-2-Clause |
+| `eslint-scope` | `8.4.0` | BSD-2-Clause |
 | `eslint-visitor-keys` | `3.4.3` | Apache-2.0 |
+| `eslint-visitor-keys` | `4.2.1` | Apache-2.0 |
 | `eslint-visitor-keys` | `5.0.1` | Apache-2.0 |
-| `espree` | `11.2.0` | BSD-2-Clause |
+| `espree` | `10.4.0` | BSD-2-Clause |
 | `esquery` | `1.7.0` | BSD-3-Clause |
 | `esrecurse` | `4.3.0` | BSD-2-Clause |
 | `estraverse` | `5.3.0` | BSD-2-Clause |
 | `estree-walker` | `3.0.3` | MIT |
 | `esutils` | `2.0.3` | BSD-2-Clause |
 | `expect-type` | `1.4.0` | Apache-2.0 |
+| `fast-deep-equal` | `3.1.3` | MIT |
 | `fast-deep-equal` | `3.1.3` | MIT |
 | `fast-glob` | `3.3.1` | MIT |
 | `fast-json-stable-stringify` | `2.1.0` | MIT |
@@ -372,10 +357,12 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `get-tsconfig` | `4.14.0` | MIT |
 | `glob-parent` | `5.1.2` | ISC |
 | `glob-parent` | `6.0.2` | ISC |
+| `globals` | `14.0.0` | MIT |
 | `globals` | `16.4.0` | MIT |
 | `globalthis` | `1.0.4` | MIT |
 | `gopd` | `1.2.0` | MIT |
 | `has-bigints` | `1.1.0` | MIT |
+| `has-flag` | `4.0.0` | MIT |
 | `has-property-descriptors` | `1.0.2` | MIT |
 | `has-proto` | `1.2.0` | MIT |
 | `has-symbols` | `1.1.0` | MIT |
@@ -387,6 +374,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `https-proxy-agent` | `7.0.6` | MIT |
 | `ignore` | `5.3.2` | MIT |
 | `ignore` | `7.0.6` | MIT |
+| `import-fresh` | `3.3.1` | MIT |
 | `imurmurhash` | `0.1.4` | MIT |
 | `indent-string` | `4.0.0` | MIT |
 | `index-to-position` | `1.2.0` | MIT |
@@ -425,7 +413,9 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `iterator.prototype` | `1.1.5` | MIT |
 | `js-levenshtein` | `1.1.6` | MIT |
 | `js-tokens` | `4.0.0` | MIT |
+| `js-tokens` | `4.0.0` | MIT |
 | `js-yaml` | `4.2.0` | MIT |
+| `js-yaml` | `4.3.0` | MIT |
 | `jsdom` | `29.1.1` | MIT |
 | `jsesc` | `3.1.0` | MIT |
 | `json-buffer` | `3.0.1` | MIT |
@@ -453,6 +443,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `lightningcss-win32-x64-msvc` | `1.32.0` | MPL-2.0 |
 | `locate-path` | `5.0.0` | MIT |
 | `locate-path` | `6.0.0` | MIT |
+| `lodash.merge` | `4.6.2` | MIT |
 | `loose-envify` | `1.4.0` | MIT |
 | `lru-cache` | `11.5.2` | BlueOak-1.0.0 |
 | `lru-cache` | `5.1.1` | ISC |
@@ -465,10 +456,9 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `min-indent` | `1.0.1` | MIT |
 | `minimatch` | `10.2.5` | BlueOak-1.0.0 |
 | `minimatch` | `3.1.5` | ISC |
-| `minimatch` | `3.1.5` | ISC |
-| `minimatch` | `3.1.5` | ISC |
 | `minimatch` | `5.1.9` | ISC |
 | `minimist` | `1.2.8` | MIT |
+| `ms` | `2.1.3` | MIT |
 | `ms` | `2.1.3` | MIT |
 | `nanoid` | `3.3.16` | MIT |
 | `napi-postinstall` | `0.3.4` | MIT |
@@ -484,7 +474,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `object.fromentries` | `2.0.8` | MIT |
 | `object.groupby` | `1.0.3` | MIT |
 | `object.values` | `1.2.1` | MIT |
-| `obug` | `2.1.3` | MIT |
+| `obug` | `2.1.4` | MIT |
 | `openapi-fetch` | `0.17.0` | MIT |
 | `openapi-typescript` | `7.13.0` | MIT |
 | `openapi-typescript-helpers` | `0.1.0` | MIT |
@@ -495,6 +485,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `p-locate` | `4.1.0` | MIT |
 | `p-locate` | `5.0.0` | MIT |
 | `p-try` | `2.2.0` | MIT |
+| `parent-module` | `1.0.1` | MIT |
 | `parse-json` | `8.3.0` | MIT |
 | `parse5` | `8.0.1` | MIT |
 | `path-exists` | `4.0.0` | MIT |
@@ -502,14 +493,16 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `path-parse` | `1.0.7` | MIT |
 | `pathe` | `2.0.3` | MIT |
 | `picocolors` | `1.1.1` | ISC |
+| `picocolors` | `1.1.1` | ISC |
 | `picomatch` | `2.3.2` | MIT |
+| `picomatch` | `4.0.5` | MIT |
+| `picomatch` | `4.0.5` | MIT |
 | `picomatch` | `4.0.5` | MIT |
 | `playwright` | `1.61.1` | Apache-2.0 |
 | `playwright-core` | `1.61.1` | Apache-2.0 |
 | `pluralize` | `8.0.0` | MIT |
 | `pngjs` | `5.0.0` | MIT |
 | `possible-typed-array-names` | `1.1.0` | MIT |
-| `postcss` | `8.5.19` | MIT |
 | `postcss` | `8.5.19` | MIT |
 | `prelude-ls` | `1.2.1` | MIT |
 | `pretty-format` | `27.5.1` | MIT |
@@ -526,8 +519,10 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `regexp.prototype.flags` | `1.5.4` | MIT |
 | `require-directory` | `2.1.1` | MIT |
 | `require-from-string` | `2.0.2` | MIT |
+| `require-from-string` | `2.0.2` | MIT |
 | `require-main-filename` | `2.0.0` | ISC |
 | `resolve` | `2.0.0-next.7` | MIT |
+| `resolve-from` | `4.0.0` | MIT |
 | `resolve-pkg-maps` | `1.0.0` | MIT |
 | `reusify` | `1.1.0` | MIT |
 | `rolldown` | `1.1.5` | MIT |
@@ -566,11 +561,12 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `string.prototype.trimend` | `1.0.10` | MIT |
 | `string.prototype.trimstart` | `1.0.8` | MIT |
 | `strip-ansi` | `6.0.1` | MIT |
-| `strip-ansi` | `6.0.1` | MIT |
 | `strip-bom` | `3.0.0` | MIT |
 | `strip-indent` | `3.0.0` | MIT |
+| `strip-json-comments` | `3.1.1` | MIT |
 | `styled-jsx` | `5.1.6` | MIT |
 | `supports-color` | `10.2.2` | MIT |
+| `supports-color` | `7.2.0` | MIT |
 | `supports-preserve-symlinks-flag` | `1.0.0` | MIT |
 | `symbol-tree` | `3.2.4` | MIT |
 | `tinybench` | `2.9.0` | MIT |
@@ -592,7 +588,7 @@ Direct Python packages: 19. Locked npm packages: 595.
 | `typed-array-byte-offset` | `1.0.4` | MIT |
 | `typed-array-length` | `1.0.8` | MIT |
 | `typescript` | `5.9.3` | Apache-2.0 |
-| `typescript` | `7.0.2` | Apache-2.0 |
+| `typescript` | `6.0.3` | Apache-2.0 |
 | `typescript-eslint` | `8.64.0` | MIT |
 | `unbox-primitive` | `1.1.0` | MIT |
 | `undici` | `7.28.0` | MIT |

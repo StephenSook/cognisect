@@ -11,6 +11,5 @@ export default defineConfig([
     "coverage/**",
     "playwright-report/**",
     "test-results/**",
-    "tools/typescript-five.cjs",
   ]),
 ]);
