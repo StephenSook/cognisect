@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -45,10 +46,16 @@ def test_readme_claims_match_frozen_evidence() -> None:
 def test_public_copy_preserves_claim_boundaries() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     evaluation = (ROOT / "docs" / "EVALUATION.md").read_text(encoding="utf-8")
-    lowered = f"{readme}\n{evaluation}".lower()
+    registry = (ROOT / "docs" / "specs" / "rule-registry-v1.md").read_text(
+        encoding="utf-8"
+    )
+    landing = (ROOT / "frontend" / "src" / "app" / "page.tsx").read_text(
+        encoding="utf-8"
+    )
+    lowered = f"{readme}\n{evaluation}\n{registry}\n{landing}".lower()
     normalized = " ".join(lowered.split())
 
-    for required in (
+    required_claims = (
         "six educator-authored fixtures",
         "zero learner responses",
         "not a generalized accuracy estimate",
@@ -56,14 +63,46 @@ def test_public_copy_preserves_claim_boundaries() -> None:
         "1 accepted and 49 conflicted",
         "teacher approval",
         "counterexample compiler",
-    ):
-        assert required in normalized
+        "closed, literature-grounded",
+        "codex",
+        "save the final teacher decision",
+        "read the persisted decision back",
+    )
 
-    for forbidden in (
+    forbidden_claims = (
         "confirmed misconception",
         "exact diagnosis",
+        "educator-reviewed",
         "validated by educators",
         "has classroom adoption",
         "improves learning",
-    ):
-        assert forbidden not in lowered
+    )
+    missing = [claim for claim in required_claims if claim not in normalized]
+    present = [claim for claim in forbidden_claims if claim in lowered]
+    assert not missing and not present, (
+        f"missing public claims: {missing}; forbidden public claims: {present}"
+    )
+
+    confidence_claims = (
+        r"\b\d+(?:\.\d+)?%\s+confidence\b",
+        r"\bconfidence(?:\s+(?:score|level))?\s*(?:of|:|=)\s*\d",
+        r"\b(?:high|medium|low)\s+confidence\b",
+    )
+    for pattern in confidence_claims:
+        assert re.search(pattern, lowered) is None
+
+
+def test_readme_judge_path_has_five_steps_and_final_review_readback() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    judge_path = readme.split("## Judge path", maxsplit=1)[1].split("\n## ", maxsplit=1)[0]
+
+    assert re.findall(r"(?m)^\d+\. ", judge_path) == [
+        "1. ",
+        "2. ",
+        "3. ",
+        "4. ",
+        "5. ",
+    ]
+    normalized = " ".join(judge_path.lower().split())
+    assert "save the final teacher decision" in normalized
+    assert "read the persisted decision back" in normalized

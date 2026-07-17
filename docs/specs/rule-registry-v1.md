@@ -8,7 +8,8 @@ Domain: ordered pairs `(a, b)` in `[-12, 12]²`, interpreted as `a - b`.
 
 The correct reference rule is `a - b`. It is an oracle only and can never be accepted as an alternative hypothesis.
 
-The closed alternative registry contains six total, parameter-free functions:
+The closed, literature-grounded alternative registry contains six total,
+parameter-free functions:
 
 | Template ID | Total function | Teacher-facing description |
 | --- | --- | --- |
@@ -19,7 +20,7 @@ The closed alternative registry contains six total, parameter-free functions:
 | `keep_minuend_sign` | `sign(a) * abs(abs(a) - abs(b))`, with `sign(0) = 1` | Finds the magnitude difference and gives it the first integer's sign. |
 | `negative_magnitude_sum` | `-(abs(a) + abs(b))` | Adds magnitudes and makes the answer negative when a minus sign is present. |
 
-These are constrained behavioral hypotheses, not diagnoses or claims about stable learner beliefs. The registry is grounded in published reports of whole-number overgeneralization, confusion between unary and binary minus, sign omission, magnitude-only strategies, and negative-sum strategies. Initial sources include Vlassis (2004), Bofferding-related integer reasoning work, and Maphosa (2017); educator review is still required before public validation claims.
+These are constrained behavioral hypotheses, not diagnoses or claims about stable learner beliefs. The registry is grounded in published reports of whole-number overgeneralization, confusion between unary and binary minus, sign omission, magnitude-only strategies, and negative-sum strategies. Initial sources include Vlassis (2004), Bofferding-related integer reasoning work, and Maphosa (2017). External educator usability review has not occurred, so the literature grounding does not support a public validation claim.
 
 ## Instance contract
 

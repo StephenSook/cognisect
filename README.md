@@ -7,9 +7,9 @@
 **Compile the next question, not a diagnosis.**
 
 COGNISECT helps a secondary mathematics teacher test competing explanations for
-one signed-integer subtraction error. GPT-5.6 maps observed work into a closed
-rule registry; a deterministic Counterexample Compiler finds the smallest
-follow-up problem on which the represented rules disagree.
+one signed-integer subtraction error. GPT-5.6 maps observed work into a closed,
+literature-grounded rule registry; a deterministic Counterexample Compiler finds
+the smallest follow-up problem on which the represented rules disagree.
 
 [![CI](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml/badge.svg)](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml)
 [![Live preview](https://img.shields.io/badge/live%20preview-online-3fb950.svg)](https://cognisect.vercel.app)
@@ -36,7 +36,9 @@ separates them, while keeping the teacher in control of what reaches the learner
 2. Review the constrained rule hypotheses and the compiled separating probe.
 3. Approve the probe, then open its learner link in a separate browser context.
 4. Submit one signed integer, return to the report, and inspect the persisted
-   evidence update and audit record.
+   evidence update.
+5. Save the final teacher decision—approve, edit, reject, or abstain—then refresh
+   the report to read the persisted decision back alongside the audit record.
 
 The preview uses free Vercel, Render web, and Render Postgres resources, so the
 first request may cold-start.
@@ -44,11 +46,11 @@ first request may cold-start.
 ## COGNISECT in one loop
 
 > A teacher submits de-identified observed work. GPT-5.6 ranks instances from an
-> educator-reviewed rule registry. The Counterexample Compiler searches all 625
-> bounded subtraction problems and persists the smallest probe where the leading
-> alternatives disagree. The teacher approves it, the learner submits one signed
-> integer, exact matching updates the evidence, and the teacher approves, edits,
-> rejects, or abstains on the final note.
+> closed, literature-grounded rule registry. The Counterexample Compiler searches
+> all 625 bounded subtraction problems and persists the smallest probe where the
+> leading alternatives disagree. The teacher approves it, the learner submits one
+> signed integer, exact matching updates the evidence, and the teacher approves,
+> edits, rejects, or abstains on the final note.
 
 ## What is real
 
@@ -94,6 +96,18 @@ flowchart TD
 The model proposes only registry data. Authorization, rule execution, probe
 selection, response matching, state transitions, and teacher approval remain in
 deterministic application code.
+
+## How Codex helped build COGNISECT
+
+The Git history makes the Codex collaboration traceable. Codex helped implement
+and test the deterministic signed-integer core in `af43cc2`, the durable Postgres
+workflow in `2b9fd53`, the Responses API workflow in `42e5bef`, and the full
+vertical slice in `9884be9`.
+
+Product scope, evidence vocabulary, privacy boundaries, human gates, and final
+claim decisions were human decisions. GPT-5.6 remains constrained to mapping
+observed work into registry instances; deterministic code and explicit teacher
+decisions control every learner-facing transition.
 
 ## Measured evidence
 

@@ -70,8 +70,8 @@ export default function HomePage() {
             <p className="method-kicker">Constrained mapping</p>
             <h3>GPT maps observed work.</h3>
             <p>
-              The model can select only educator-reviewed templates. Unknown or equivalent
-              rules are rejected.
+              The model can select only templates from a closed, literature-grounded rule
+              registry. Unknown or equivalent rules are rejected.
             </p>
           </li>
           <li>

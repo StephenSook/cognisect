@@ -6,7 +6,9 @@ The frozen benchmark contains six author-reviewed, educator-authored fixtures. I
 contains zero authentic learner records and zero learner responses. The records
 are useful for checking a small labeled harness; they do not support a generalized
 model-accuracy, classroom, learning, time-saving, adoption, or educator-approval
-claim.
+claim. Model outputs are accepted only as instances of the closed,
+literature-grounded rule registry; that constraint is not evidence of educator
+validation.
 
 The manifest, provenance ledger, production prompt source, model IDs, route,
 registry, compiler, metrics, and maximum call count were frozen in
