@@ -17,6 +17,8 @@
             "type": "array"
           },
           "rank": {
+            "maximum": 4.0,
+            "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
           },
@@ -25,6 +27,9 @@
             "type": "string"
           },
           "truth_table_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Truth Table Hash",
             "type": "string"
           }
@@ -173,6 +178,9 @@
             "type": "string"
           },
           "specification_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Specification Hash",
             "type": "string"
           }
@@ -371,151 +379,13 @@
         "title": "CreateCaseResponse",
         "type": "object"
       },
-      "EvidenceReceiptCandidateProof": {
-        "additionalProperties": false,
-        "description": "One explicitly allowlisted compiler-ranking candidate.",
-        "properties": {
-          "correct_result_magnitude": {
-            "title": "Correct Result Magnitude",
-            "type": "integer"
-          },
-          "distinct_output_count": {
-            "title": "Distinct Output Count",
-            "type": "integer"
-          },
-          "distinguished_pair_count": {
-            "title": "Distinguished Pair Count",
-            "type": "integer"
-          },
-          "operand_magnitude": {
-            "title": "Operand Magnitude",
-            "type": "integer"
-          },
-          "predictions": {
-            "items": {
-              "type": "integer"
-            },
-            "title": "Predictions",
-            "type": "array"
-          },
-          "problem": {
-            "$ref": "#/components/schemas/SignedProblemDTO"
-          },
-          "rank": {
-            "title": "Rank",
-            "type": "integer"
-          },
-          "top_two_separated": {
-            "title": "Top Two Separated",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "problem",
-          "predictions",
-          "distinct_output_count",
-          "top_two_separated",
-          "distinguished_pair_count",
-          "operand_magnitude",
-          "correct_result_magnitude",
-          "rank"
-        ],
-        "title": "EvidenceReceiptCandidateProof",
-        "type": "object"
-      },
-      "EvidenceReceiptCompiledProbe": {
-        "additionalProperties": false,
-        "description": "Persisted probe specification and independently reproducible proof.",
-        "properties": {
-          "compiler_version": {
-            "title": "Compiler Version",
-            "type": "string"
-          },
-          "correct_prediction": {
-            "title": "Correct Prediction",
-            "type": "integer"
-          },
-          "original_problem": {
-            "$ref": "#/components/schemas/SignedProblemDTO"
-          },
-          "predictions": {
-            "items": {
-              "$ref": "#/components/schemas/EvidenceReceiptPrediction"
-            },
-            "title": "Predictions",
-            "type": "array"
-          },
-          "problem": {
-            "$ref": "#/components/schemas/SignedProblemDTO"
-          },
-          "proof": {
-            "$ref": "#/components/schemas/EvidenceReceiptCompilerProof"
-          },
-          "registry_version": {
-            "title": "Registry Version",
-            "type": "string"
-          },
-          "specification_hash": {
-            "title": "Specification Hash",
-            "type": "string"
-          }
-        },
-        "required": [
-          "original_problem",
-          "problem",
-          "correct_prediction",
-          "specification_hash",
-          "registry_version",
-          "compiler_version",
-          "predictions",
-          "proof"
-        ],
-        "title": "EvidenceReceiptCompiledProbe",
-        "type": "object"
-      },
-      "EvidenceReceiptCompilerProof": {
-        "additionalProperties": false,
-        "description": "Complete deterministic compiler search evidence.",
-        "properties": {
-          "chosen_candidate_rank": {
-            "title": "Chosen Candidate Rank",
-            "type": "integer"
-          },
-          "domain_problem_count": {
-            "title": "Domain Problem Count",
-            "type": "integer"
-          },
-          "eligible_candidate_count": {
-            "title": "Eligible Candidate Count",
-            "type": "integer"
-          },
-          "separating_candidate_count": {
-            "title": "Separating Candidate Count",
-            "type": "integer"
-          },
-          "top_candidates": {
-            "items": {
-              "$ref": "#/components/schemas/EvidenceReceiptCandidateProof"
-            },
-            "title": "Top Candidates",
-            "type": "array"
-          }
-        },
-        "required": [
-          "domain_problem_count",
-          "eligible_candidate_count",
-          "separating_candidate_count",
-          "chosen_candidate_rank",
-          "top_candidates"
-        ],
-        "title": "EvidenceReceiptCompilerProof",
-        "type": "object"
-      },
       "EvidenceReceiptHypothesis": {
         "additionalProperties": false,
         "description": "One prose-free closed-registry hypothesis proof.",
         "properties": {
           "rank": {
+            "maximum": 4.0,
+            "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
           },
@@ -524,6 +394,9 @@
             "type": "string"
           },
           "truth_table_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Truth Table Hash",
             "type": "string"
           }
@@ -534,31 +407,6 @@
           "truth_table_hash"
         ],
         "title": "EvidenceReceiptHypothesis",
-        "type": "object"
-      },
-      "EvidenceReceiptPrediction": {
-        "additionalProperties": false,
-        "description": "One deterministic probe prediction without source prose.",
-        "properties": {
-          "prediction": {
-            "title": "Prediction",
-            "type": "integer"
-          },
-          "rank": {
-            "title": "Rank",
-            "type": "integer"
-          },
-          "template_id": {
-            "title": "Template Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "template_id",
-          "rank",
-          "prediction"
-        ],
-        "title": "EvidenceReceiptPrediction",
         "type": "object"
       },
       "EvidenceReceiptResponse": {
@@ -587,7 +435,7 @@
           "compiled_probe": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/EvidenceReceiptCompiledProbe"
+                "$ref": "#/components/schemas/CompiledProbeResponse"
               },
               {
                 "type": "null"
@@ -945,6 +793,8 @@
             "type": "integer"
           },
           "rank": {
+            "maximum": 4.0,
+            "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
           },

@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import delete, exists, func, select
+from sqlalchemy import delete, exists, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -1375,158 +1375,169 @@ class WorkflowService:
         """Build the complete teacher DTO while keeping persistence records private."""
         async with self._sessions() as session:
             owner = await self._owner_for_secret(session, owner_secret)
-            workflow = await get_owned_workflow(
-                session, workflow_id=workflow_id, owner_id=owner.id
+            return await self._get_workflow_dto_in_session(
+                session, owner.id, workflow_id
             )
-            case = await session.get(CaseRecord, workflow.case_id)
-            if case is None:
-                msg = "resource not found"
-                raise OwnedResourceNotFoundError(msg)
-            hypotheses = list(
+
+    async def _get_workflow_dto_in_session(
+        self,
+        session: AsyncSession,
+        owner_id: UUID,
+        workflow_id: UUID,
+    ) -> WorkflowResponse:
+        """Build one teacher DTO inside the caller's database snapshot."""
+        workflow = await get_owned_workflow(
+            session, workflow_id=workflow_id, owner_id=owner_id
+        )
+        case = await session.get(CaseRecord, workflow.case_id)
+        if case is None:
+            msg = "resource not found"
+            raise OwnedResourceNotFoundError(msg)
+        hypotheses = list(
+            (
+                await session.scalars(
+                    select(AcceptedHypothesisRecord)
+                    .where(AcceptedHypothesisRecord.workflow_id == workflow_id)
+                    .order_by(AcceptedHypothesisRecord.rank)
+                )
+            ).all()
+        )
+        probe = await session.scalar(
+            select(CompiledProbeRecord).where(
+                CompiledProbeRecord.workflow_id == workflow_id
+            )
+        )
+        predictions = (
+            list(
                 (
                     await session.scalars(
-                        select(AcceptedHypothesisRecord)
-                        .where(AcceptedHypothesisRecord.workflow_id == workflow_id)
-                        .order_by(AcceptedHypothesisRecord.rank)
+                        select(ProbePredictionRecord)
+                        .where(ProbePredictionRecord.compiled_probe_id == probe.id)
+                        .order_by(ProbePredictionRecord.rank)
                     )
                 ).all()
             )
-            probe = await session.scalar(
-                select(CompiledProbeRecord).where(
-                    CompiledProbeRecord.workflow_id == workflow_id
-                )
+            if probe is not None
+            else []
+        )
+        proof = (
+            _derive_persisted_proof(probe, hypotheses, predictions)
+            if probe is not None
+            else None
+        )
+        proposal = await session.scalar(
+            select(GeneratedProposalRecord).where(
+                GeneratedProposalRecord.workflow_id == workflow_id
             )
-            predictions = (
-                list(
-                    (
-                        await session.scalars(
-                            select(ProbePredictionRecord)
-                            .where(ProbePredictionRecord.compiled_probe_id == probe.id)
-                            .order_by(ProbePredictionRecord.rank)
+        )
+        review = await session.scalar(
+            select(TeacherReviewRecord).where(TeacherReviewRecord.workflow_id == workflow_id)
+        )
+        learner_response = await session.scalar(
+            select(LearnerResponseRecord).where(
+                LearnerResponseRecord.workflow_id == workflow_id
+            )
+        )
+        active_token = None
+        if workflow.state == WorkflowState.AWAITING_RESPONSE:
+            active_token = await session.scalar(
+                select(LearnerTokenRecord).where(
+                    LearnerTokenRecord.workflow_id == workflow_id,
+                    LearnerTokenRecord.expires_at > _now_utc(self._clock),
+                    ~exists(
+                        select(LearnerResponseRecord.id).where(
+                            LearnerResponseRecord.learner_token_id
+                            == LearnerTokenRecord.id
                         )
-                    ).all()
+                    ),
+                    ~exists(
+                        select(InvalidLearnerCommandRecord.id).where(
+                            InvalidLearnerCommandRecord.learner_token_id
+                            == LearnerTokenRecord.id
+                        )
+                    ),
                 )
-                if probe is not None
-                else []
             )
-            proof = (
-                _derive_persisted_proof(probe, hypotheses, predictions)
-                if probe is not None
+        learner_response_url = None
+        if active_token is not None:
+            active_secret = derive_learner_secret(
+                active_token.id,
+                active_token.derivation_nonce,
+                self._learner_pepper,
+            )
+            learner_response_url = (
+                f"{self._settings.public_app_url}/respond/{active_secret}"
+            )
+        return WorkflowResponse(
+            workflow_id=workflow.id,
+            case_id=workflow.case_id,
+            source_tier=cast("SourceTier", case.source_tier),
+            provenance_record_id=case.provenance_record_id,
+            state=workflow.state.value,
+            schema_version=workflow.schema_version,
+            registry_version=workflow.registry_version,
+            prompt_version=workflow.prompt_version,
+            compiler_version=workflow.compiler_version,
+            model_snapshot=workflow.model_snapshot,
+            model_request_id=workflow.model_request_id,
+            learner_response_url=learner_response_url,
+            created_at=workflow.created_at,
+            updated_at=workflow.updated_at,
+            version=workflow.version,
+            accepted_hypotheses=[
+                AcceptedHypothesisResponse(
+                    template_id=hypothesis.template_id,
+                    evidence_refs=hypothesis.evidence_refs,
+                    description=hypothesis.description,
+                    rank=hypothesis.rank,
+                    truth_table_hash=hypothesis.truth_table_hash,
+                )
+                for hypothesis in hypotheses
+            ],
+            compiled_probe=(
+                CompiledProbeResponse(
+                    original_problem=SignedProblemDTO(
+                        a=probe.original_a,
+                        b=probe.original_b,
+                    ),
+                    problem=SignedProblemDTO(a=probe.chosen_a, b=probe.chosen_b),
+                    correct_prediction=probe.correct_prediction,
+                    specification_hash=probe.specification_hash,
+                    registry_version=probe.registry_version,
+                    compiler_version=probe.compiler_version,
+                    predictions=[
+                        ProbePredictionResponse(
+                            template_id=prediction.template_id,
+                            rank=prediction.rank,
+                            prediction=prediction.prediction,
+                        )
+                        for prediction in predictions
+                    ],
+                    proof=_proof_response(proof),
+                )
+                if probe is not None and proof is not None
                 else None
-            )
-            proposal = await session.scalar(
-                select(GeneratedProposalRecord).where(
-                    GeneratedProposalRecord.workflow_id == workflow_id
+            ),
+            deterministic_evidence=[
+                EvidenceStatusResponse.model_validate(item)
+                for item in (proposal.evidence if proposal is not None else [])
+            ],
+            learner_rationale=(
+                learner_response.rationale if learner_response is not None else None
+            ),
+            review_result=(
+                ReviewResultResponse(
+                    decision=cast("ReviewDecision", review.decision),
+                    note=review.note,
+                    edited_text=review.edited_text,
+                    created_at=review.created_at,
                 )
-            )
-            review = await session.scalar(
-                select(TeacherReviewRecord).where(TeacherReviewRecord.workflow_id == workflow_id)
-            )
-            learner_response = await session.scalar(
-                select(LearnerResponseRecord).where(
-                    LearnerResponseRecord.workflow_id == workflow_id
-                )
-            )
-            active_token = None
-            if workflow.state == WorkflowState.AWAITING_RESPONSE:
-                active_token = await session.scalar(
-                    select(LearnerTokenRecord).where(
-                        LearnerTokenRecord.workflow_id == workflow_id,
-                        LearnerTokenRecord.expires_at > _now_utc(self._clock),
-                        ~exists(
-                            select(LearnerResponseRecord.id).where(
-                                LearnerResponseRecord.learner_token_id
-                                == LearnerTokenRecord.id
-                            )
-                        ),
-                        ~exists(
-                            select(InvalidLearnerCommandRecord.id).where(
-                                InvalidLearnerCommandRecord.learner_token_id
-                                == LearnerTokenRecord.id
-                            )
-                        ),
-                    )
-                )
-            learner_response_url = None
-            if active_token is not None:
-                active_secret = derive_learner_secret(
-                    active_token.id,
-                    active_token.derivation_nonce,
-                    self._learner_pepper,
-                )
-                learner_response_url = (
-                    f"{self._settings.public_app_url}/respond/{active_secret}"
-                )
-            return WorkflowResponse(
-                workflow_id=workflow.id,
-                case_id=workflow.case_id,
-                source_tier=cast("SourceTier", case.source_tier),
-                provenance_record_id=case.provenance_record_id,
-                state=workflow.state.value,
-                schema_version=workflow.schema_version,
-                registry_version=workflow.registry_version,
-                prompt_version=workflow.prompt_version,
-                compiler_version=workflow.compiler_version,
-                model_snapshot=workflow.model_snapshot,
-                model_request_id=workflow.model_request_id,
-                learner_response_url=learner_response_url,
-                created_at=workflow.created_at,
-                updated_at=workflow.updated_at,
-                version=workflow.version,
-                accepted_hypotheses=[
-                    AcceptedHypothesisResponse(
-                        template_id=hypothesis.template_id,
-                        evidence_refs=hypothesis.evidence_refs,
-                        description=hypothesis.description,
-                        rank=hypothesis.rank,
-                        truth_table_hash=hypothesis.truth_table_hash,
-                    )
-                    for hypothesis in hypotheses
-                ],
-                compiled_probe=(
-                    CompiledProbeResponse(
-                        original_problem=SignedProblemDTO(
-                            a=probe.original_a,
-                            b=probe.original_b,
-                        ),
-                        problem=SignedProblemDTO(a=probe.chosen_a, b=probe.chosen_b),
-                        correct_prediction=probe.correct_prediction,
-                        specification_hash=probe.specification_hash,
-                        registry_version=probe.registry_version,
-                        compiler_version=probe.compiler_version,
-                        predictions=[
-                            ProbePredictionResponse(
-                                template_id=prediction.template_id,
-                                rank=prediction.rank,
-                                prediction=prediction.prediction,
-                            )
-                            for prediction in predictions
-                        ],
-                        proof=_proof_response(proof),
-                    )
-                    if probe is not None and proof is not None
-                    else None
-                ),
-                deterministic_evidence=[
-                    EvidenceStatusResponse.model_validate(item)
-                    for item in (proposal.evidence if proposal is not None else [])
-                ],
-                learner_rationale=(
-                    learner_response.rationale if learner_response is not None else None
-                ),
-                review_result=(
-                    ReviewResultResponse(
-                        decision=cast("ReviewDecision", review.decision),
-                        note=review.note,
-                        edited_text=review.edited_text,
-                        created_at=review.created_at,
-                    )
-                    if review is not None
-                    else None
-                ),
-                generated_proposal=(proposal.generated_text if proposal is not None else None),
-                edited_text=(review.edited_text if review is not None else None),
-            )
+                if review is not None
+                else None
+            ),
+            generated_proposal=(proposal.generated_text if proposal is not None else None),
+            edited_text=(review.edited_text if review is not None else None),
+        )
 
     async def review_workflow(
         self,
@@ -1602,22 +1613,33 @@ class WorkflowService:
         async with self._sessions() as session:
             owner = await self._owner_for_secret(session, owner_secret)
             await get_owned_workflow(session, workflow_id=workflow_id, owner_id=owner.id)
-            return list(
-                (
-                    await session.scalars(
-                        select(AuditEventRecord)
-                        .where(AuditEventRecord.workflow_id == workflow_id)
-                        .order_by(AuditEventRecord.sequence)
-                    )
-                ).all()
-            )
+            return await self._get_audit_events_in_session(session, workflow_id)
+
+    async def _get_audit_events_in_session(
+        self, session: AsyncSession, workflow_id: UUID
+    ) -> list[AuditEventRecord]:
+        """Read ordered audit events inside the caller's database snapshot."""
+        return list(
+            (
+                await session.scalars(
+                    select(AuditEventRecord)
+                    .where(AuditEventRecord.workflow_id == workflow_id)
+                    .order_by(AuditEventRecord.sequence)
+                )
+            ).all()
+        )
 
     async def get_evidence_receipt(
         self, owner_secret: str, workflow_id: UUID
     ) -> EvidenceReceiptResponse:
-        """Build one owner-authorized receipt from the safe DTO allowlist."""
-        workflow = await self.get_workflow_dto(owner_secret, workflow_id)
-        events = await self.get_audit(owner_secret, workflow_id)
+        """Build one owner-authorized receipt from a repeatable-read snapshot."""
+        async with self._sessions() as session, session.begin():
+            await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+            owner = await self._owner_for_secret(session, owner_secret)
+            workflow = await self._get_workflow_dto_in_session(
+                session, owner.id, workflow_id
+            )
+            events = await self._get_audit_events_in_session(session, workflow_id)
         return build_evidence_receipt(
             workflow=workflow,
             audit=AuditResponse(

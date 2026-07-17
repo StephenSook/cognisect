@@ -95,6 +95,12 @@ def _privacy_headers(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store, private"
 
 
+def _requires_privacy_headers(path: str) -> bool:
+    return path.startswith("/v1/respond/") or (
+        path.startswith("/v1/workflows/") and path.endswith("/receipt")
+    )
+
+
 def create_app(  # noqa: C901, PLR0915
     *,
     settings: Settings | None = None,
@@ -161,7 +167,7 @@ def create_app(  # noqa: C901, PLR0915
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         response = await call_next(request)
-        if request.url.path.startswith("/v1/respond/"):
+        if _requires_privacy_headers(request.url.path):
             _privacy_headers(response)
         route = request.scope.get("route")
         logger.info(

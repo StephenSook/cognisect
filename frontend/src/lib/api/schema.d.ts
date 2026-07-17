@@ -355,62 +355,6 @@ export interface components {
             workflow_id: string;
         };
         /**
-         * EvidenceReceiptCandidateProof
-         * @description One explicitly allowlisted compiler-ranking candidate.
-         */
-        EvidenceReceiptCandidateProof: {
-            /** Correct Result Magnitude */
-            correct_result_magnitude: number;
-            /** Distinct Output Count */
-            distinct_output_count: number;
-            /** Distinguished Pair Count */
-            distinguished_pair_count: number;
-            /** Operand Magnitude */
-            operand_magnitude: number;
-            /** Predictions */
-            predictions: number[];
-            problem: components["schemas"]["SignedProblemDTO"];
-            /** Rank */
-            rank: number;
-            /** Top Two Separated */
-            top_two_separated: boolean;
-        };
-        /**
-         * EvidenceReceiptCompiledProbe
-         * @description Persisted probe specification and independently reproducible proof.
-         */
-        EvidenceReceiptCompiledProbe: {
-            /** Compiler Version */
-            compiler_version: string;
-            /** Correct Prediction */
-            correct_prediction: number;
-            original_problem: components["schemas"]["SignedProblemDTO"];
-            /** Predictions */
-            predictions: components["schemas"]["EvidenceReceiptPrediction"][];
-            problem: components["schemas"]["SignedProblemDTO"];
-            proof: components["schemas"]["EvidenceReceiptCompilerProof"];
-            /** Registry Version */
-            registry_version: string;
-            /** Specification Hash */
-            specification_hash: string;
-        };
-        /**
-         * EvidenceReceiptCompilerProof
-         * @description Complete deterministic compiler search evidence.
-         */
-        EvidenceReceiptCompilerProof: {
-            /** Chosen Candidate Rank */
-            chosen_candidate_rank: number;
-            /** Domain Problem Count */
-            domain_problem_count: number;
-            /** Eligible Candidate Count */
-            eligible_candidate_count: number;
-            /** Separating Candidate Count */
-            separating_candidate_count: number;
-            /** Top Candidates */
-            top_candidates: components["schemas"]["EvidenceReceiptCandidateProof"][];
-        };
-        /**
          * EvidenceReceiptHypothesis
          * @description One prose-free closed-registry hypothesis proof.
          */
@@ -421,18 +365,6 @@ export interface components {
             template_id: string;
             /** Truth Table Hash */
             truth_table_hash: string;
-        };
-        /**
-         * EvidenceReceiptPrediction
-         * @description One deterministic probe prediction without source prose.
-         */
-        EvidenceReceiptPrediction: {
-            /** Prediction */
-            prediction: number;
-            /** Rank */
-            rank: number;
-            /** Template Id */
-            template_id: string;
         };
         /**
          * EvidenceReceiptResponse
@@ -448,7 +380,7 @@ export interface components {
              * Format: uuid
              */
             case_id: string;
-            compiled_probe: components["schemas"]["EvidenceReceiptCompiledProbe"] | null;
+            compiled_probe: components["schemas"]["CompiledProbeResponse"] | null;
             /** Compiler Version */
             compiler_version: string;
             /**

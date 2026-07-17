@@ -435,6 +435,98 @@ async def test_owner_receipt_includes_proof_and_excludes_every_forbidden_content
         cross_owner = await other_owner.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
     assert missing.status_code == cross_owner.status_code == 404
     assert missing.json() == cross_owner.json() == {"detail": "resource not found"}
+    for unauthorized in (missing, cross_owner):
+        assert unauthorized.headers["cache-control"] == "no-store, private"
+        assert unauthorized.headers["referrer-policy"] == "no-referrer"
+
+
+@pytest.mark.postgres
+async def test_receipt_is_one_consistent_snapshot_during_concurrent_review(
+    client, app, monkeypatch
+):
+    created = await client.post(
+        "/v1/cases",
+        headers={"Idempotency-Key": "snapshot-create-key"},
+        json=case_payload(),
+    )
+    identifiers = created.json()
+    analyzed = await client.post(
+        f"/v1/cases/{identifiers['case_id']}/analysis",
+        headers={"Idempotency-Key": "snapshot-analysis-key"},
+        json={"expected_version": 0},
+    )
+    approved = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
+        headers={"Idempotency-Key": "snapshot-approval-key"},
+        json={"expected_version": analyzed.json()["version"], "approved": True},
+    )
+    capability = urlparse(approved.json()["response_url"]).path.rsplit("/", 1)[-1]
+    learner_probe = await client.get(f"/v1/respond/{capability}")
+    problem = learner_probe.json()["problem"]
+    submitted = await client.post(
+        f"/v1/respond/{capability}",
+        headers={"Idempotency-Key": "snapshot-submit-key"},
+        json={"answer": problem["a"] - problem["b"]},
+    )
+    assert submitted.status_code == 200
+    pending = await client.get(f"/v1/workflows/{identifiers['workflow_id']}")
+    assert pending.json()["state"] == "AWAITING_REVIEW"
+
+    service = app.state.workflow_service
+    audit_read_started = asyncio.Event()
+    allow_audit_read = asyncio.Event()
+    reader_name = (
+        "_get_audit_events_in_session"
+        if hasattr(service, "_get_audit_events_in_session")
+        else "get_audit"
+    )
+    real_reader = getattr(service, reader_name)
+
+    async def paused_audit_reader(*args, **kwargs):
+        audit_read_started.set()
+        await allow_audit_read.wait()
+        return await real_reader(*args, **kwargs)
+
+    monkeypatch.setattr(service, reader_name, paused_audit_reader)
+    receipt_task = asyncio.create_task(
+        client.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+    )
+    await asyncio.wait_for(audit_read_started.wait(), timeout=5)
+    try:
+        reviewed = await client.post(
+            f"/v1/workflows/{identifiers['workflow_id']}/review",
+            headers={"Idempotency-Key": "snapshot-review-key"},
+            json={
+                "expected_version": pending.json()["version"],
+                "decision": "approved",
+                "note": "Concurrent teacher decision.",
+            },
+        )
+        assert reviewed.status_code == 200
+    finally:
+        allow_audit_read.set()
+    receipt_response = await asyncio.wait_for(receipt_task, timeout=5)
+    receipt = receipt_response.json()
+    observed = (
+        receipt["workflow_version"],
+        receipt["state"],
+        receipt["review_decision"],
+        max(event["version"] for event in receipt["audit_events"]),
+    )
+    assert observed in {
+        (
+            pending.json()["version"],
+            "AWAITING_REVIEW",
+            None,
+            pending.json()["version"],
+        ),
+        (
+            reviewed.json()["version"],
+            "APPROVED",
+            "approved",
+            reviewed.json()["version"],
+        ),
+    }
 
 
 @pytest.mark.postgres

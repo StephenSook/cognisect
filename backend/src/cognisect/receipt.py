@@ -8,14 +8,14 @@ import json
 from cognisect.api_models import (
     AuditEventResponse,
     AuditResponse,
-    EvidenceReceiptCandidateProof,
-    EvidenceReceiptCompiledProbe,
-    EvidenceReceiptCompilerProof,
+    CompiledProbeResponse,
+    CompilerCandidateProof,
+    CompilerSearchProof,
     EvidenceReceiptHypothesis,
     EvidenceReceiptPayload,
-    EvidenceReceiptPrediction,
     EvidenceReceiptResponse,
     EvidenceStatusResponse,
+    ProbePredictionResponse,
     SignedProblemDTO,
     WorkflowResponse,
 )
@@ -25,11 +25,11 @@ def _problem(problem: SignedProblemDTO) -> SignedProblemDTO:
     return SignedProblemDTO(a=problem.a, b=problem.b)
 
 
-def _compiled_probe(workflow: WorkflowResponse) -> EvidenceReceiptCompiledProbe | None:
+def _compiled_probe(workflow: WorkflowResponse) -> CompiledProbeResponse | None:
     probe = workflow.compiled_probe
     if probe is None:
         return None
-    return EvidenceReceiptCompiledProbe(
+    return CompiledProbeResponse(
         original_problem=_problem(probe.original_problem),
         problem=_problem(probe.problem),
         correct_prediction=probe.correct_prediction,
@@ -37,7 +37,7 @@ def _compiled_probe(workflow: WorkflowResponse) -> EvidenceReceiptCompiledProbe 
         registry_version=probe.registry_version,
         compiler_version=probe.compiler_version,
         predictions=[
-            EvidenceReceiptPrediction(
+            ProbePredictionResponse(
                 template_id=prediction.template_id,
                 rank=prediction.rank,
                 prediction=prediction.prediction,
@@ -47,13 +47,13 @@ def _compiled_probe(workflow: WorkflowResponse) -> EvidenceReceiptCompiledProbe 
                 key=lambda item: (item.rank, item.template_id),
             )
         ],
-        proof=EvidenceReceiptCompilerProof(
+        proof=CompilerSearchProof(
             domain_problem_count=probe.proof.domain_problem_count,
             eligible_candidate_count=probe.proof.eligible_candidate_count,
             separating_candidate_count=probe.proof.separating_candidate_count,
             chosen_candidate_rank=probe.proof.chosen_candidate_rank,
             top_candidates=[
-                EvidenceReceiptCandidateProof(
+                CompilerCandidateProof(
                     problem=_problem(candidate.problem),
                     predictions=list(candidate.predictions),
                     distinct_output_count=candidate.distinct_output_count,

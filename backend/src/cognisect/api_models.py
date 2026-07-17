@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints, model_validator
 
-from cognisect.models import StrictContractModel
+from cognisect.models import Rank, StrictContractModel
 
 SourceTier = Literal[
     "authentic",
@@ -26,6 +26,15 @@ ProvenanceRecordId = Annotated[
         min_length=1,
         max_length=80,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    ),
+]
+Sha256Hex = Annotated[
+    str,
+    StringConstraints(
+        strict=True,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
     ),
 ]
 
@@ -160,15 +169,15 @@ class AcceptedHypothesisResponse(StrictContractModel):
     template_id: str
     evidence_refs: list[str]
     description: str
-    rank: int
-    truth_table_hash: str
+    rank: Rank
+    truth_table_hash: Sha256Hex
 
 
 class ProbePredictionResponse(StrictContractModel):
     """One persisted alternative prediction committed with the probe."""
 
     template_id: str
-    rank: int
+    rank: Rank
     prediction: int
 
 
@@ -201,7 +210,7 @@ class CompiledProbeResponse(StrictContractModel):
     original_problem: SignedProblemDTO
     problem: SignedProblemDTO
     correct_prediction: int
-    specification_hash: str
+    specification_hash: Sha256Hex
     registry_version: str
     compiler_version: str
     predictions: list[ProbePredictionResponse]
@@ -273,52 +282,8 @@ class EvidenceReceiptHypothesis(StrictContractModel):
     """One prose-free closed-registry hypothesis proof."""
 
     template_id: str
-    rank: int
-    truth_table_hash: str
-
-
-class EvidenceReceiptPrediction(StrictContractModel):
-    """One deterministic probe prediction without source prose."""
-
-    template_id: str
-    rank: int
-    prediction: int
-
-
-class EvidenceReceiptCandidateProof(StrictContractModel):
-    """One explicitly allowlisted compiler-ranking candidate."""
-
-    problem: SignedProblemDTO
-    predictions: list[int]
-    distinct_output_count: int
-    top_two_separated: bool
-    distinguished_pair_count: int
-    operand_magnitude: int
-    correct_result_magnitude: int
-    rank: int
-
-
-class EvidenceReceiptCompilerProof(StrictContractModel):
-    """Complete deterministic compiler search evidence."""
-
-    domain_problem_count: int
-    eligible_candidate_count: int
-    separating_candidate_count: int
-    chosen_candidate_rank: int
-    top_candidates: list[EvidenceReceiptCandidateProof]
-
-
-class EvidenceReceiptCompiledProbe(StrictContractModel):
-    """Persisted probe specification and independently reproducible proof."""
-
-    original_problem: SignedProblemDTO
-    problem: SignedProblemDTO
-    correct_prediction: int
-    specification_hash: str
-    registry_version: str
-    compiler_version: str
-    predictions: list[EvidenceReceiptPrediction]
-    proof: EvidenceReceiptCompilerProof
+    rank: Rank
+    truth_table_hash: Sha256Hex
 
 
 class EvidenceReceiptPayload(StrictContractModel):
@@ -338,7 +303,7 @@ class EvidenceReceiptPayload(StrictContractModel):
     updated_at: datetime
     workflow_version: int
     accepted_hypotheses: list[EvidenceReceiptHypothesis]
-    compiled_probe: EvidenceReceiptCompiledProbe | None
+    compiled_probe: CompiledProbeResponse | None
     deterministic_evidence: list[EvidenceStatusResponse]
     review_decision: ReviewDecision | None
     reviewed_at: datetime | None
@@ -348,10 +313,7 @@ class EvidenceReceiptPayload(StrictContractModel):
 class EvidenceReceiptResponse(EvidenceReceiptPayload):
     """Owner-authorized receipt with a canonical payload hash."""
 
-    receipt_hash: Annotated[
-        str,
-        StringConstraints(strict=True, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
-    ]
+    receipt_hash: Sha256Hex
 
 
 class VersionResponse(StrictContractModel):
