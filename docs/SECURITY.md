@@ -17,14 +17,15 @@ The machine-readable sources are `data/security/security-audit.v1.json` and
 
 - `backend/src/cognisect/api.py:108` validates the owner capability shape and
   returns the same non-enumerating 404 for missing or invalid authority.
-- `backend/src/cognisect/api.py:350` consumes the public quota before owner
+- `backend/src/cognisect/api.py:367-374` consumes the public quota before owner
   bootstrap, and lines 375-391 bootstrap before educational mutation and
   sets a Secure, HttpOnly, SameSite=Lax production cookie.
 - `backend/src/cognisect/services.py:396` looks up only a purpose-hashed owner
   capability. `backend/src/cognisect/repositories.py` scopes workflow access by
   owner before any read or transition.
-- `backend/src/cognisect/services.py:1021` derives a separate learner capability,
-  line 1027 persists only its hash, and line 1076 applies the submission row lock.
+- `backend/src/cognisect/services.py:1023` derives a separate learner capability,
+  lines 1027-1036 persist only its hash, and lines 1076-1077 apply the submission
+  row lock.
 - `frontend/src/lib/backend-proxy.ts:168` reads the teacher cookie, and line 174
   excludes it from every learner response path.
 

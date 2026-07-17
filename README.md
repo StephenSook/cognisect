@@ -130,7 +130,13 @@ and [security report](docs/SECURITY.md) for methods and limitations.
 ## Quickstart
 
 Python 3.12, Node 22, `uv`, and Docker are required.
-CI uses Node 22.22.2, and both frontend manifests record npm 10.9.4.
+CI uses Node 22.22.2. Both frontend manifests and project npm configuration
+enforce npm 10.9.4. Activate that exact package manager before installation:
+
+```sh
+corepack enable npm && corepack prepare npm@10.9.4 --activate
+test "$(npm --version)" = "10.9.4"
+```
 
 ```sh
 git clone https://github.com/StephenSook/cognisect.git
