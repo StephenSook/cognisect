@@ -2,7 +2,7 @@ import base64
 import binascii
 import importlib.util
 import json
-import re
+import shlex
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,16 +21,9 @@ SPEC.loader.exec_module(generate_dependency_licenses)
 
 VALID_SHA512_SRI = "sha512-" + base64.b64encode(bytes(64)).decode("ascii")
 SETUP_NODE_PREFIX = "actions/setup-node@"
-SHELL_COMMAND_BOUNDARY = r"(?m)(?:^|&&|\|\||[;|])\s*"
-NPM_ACTIVATION = re.compile(SHELL_COMMAND_BOUNDARY + r"corepack\s+enable\s+npm\b")
-NPM_PREPARATION = re.compile(
-    SHELL_COMMAND_BOUNDARY + r"corepack\s+prepare\s+npm@10\.9\.4\s+--activate\b",
-)
-NPM_VERSION_GATE = re.compile(
-    SHELL_COMMAND_BOUNDARY
-    + r"""test\s+["']?\$\(\s*npm\s+--version\s*\)["']?\s+=\s*["']?10\.9\.4["']?(?:\s|$)""",
-)
-NPM_EXECUTION = re.compile(SHELL_COMMAND_BOUNDARY + r"(?:npm|npx)(?=\s|$)")
+SHELL_PUNCTUATION = frozenset(";&|")
+ACTIVATION_ENABLE = ("corepack", "enable", "npm")
+ACTIVATION_PREPARE = ("corepack", "prepare", "npm@10.9.4", "--activate")
 
 
 def _assert_registry_artifact(package_path: str, package: dict[str, object]) -> None:
@@ -75,18 +68,81 @@ def _run_script(step: object) -> str | None:
     return run if isinstance(run, str) else None
 
 
-def _is_exact_activation(run: str) -> bool:
-    enable = NPM_ACTIVATION.search(run)
-    prepare = NPM_PREPARATION.search(run)
-    return enable is not None and prepare is not None and enable.start() < prepare.start()
+def _shell_commands(
+    run: str,
+    *,
+    posix: bool = True,
+) -> list[tuple[tuple[str, ...], str | None]]:
+    lexer = shlex.shlex(run, posix=posix, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    commands: list[tuple[tuple[str, ...], str | None]] = []
+    command: list[str] = []
+    for token in lexer:
+        if token and set(token) <= SHELL_PUNCTUATION:
+            if command:
+                commands.append((tuple(command), token))
+                command = []
+            continue
+        command.append(token)
+    if command:
+        commands.append((tuple(command), None))
+    return commands
 
 
-def _runs_npm_workload(run: str) -> bool:
-    version_gate_spans = [match.span() for match in NPM_VERSION_GATE.finditer(run)]
-    return any(
-        not any(start <= match.start() < end for start, end in version_gate_spans)
-        for match in NPM_EXECUTION.finditer(run)
+def _is_exact_version_gate(
+    command: tuple[str, ...],
+    quoted_command: tuple[str, ...],
+) -> bool:
+    if (
+        len(command) != 4
+        or len(quoted_command) != 4
+        or command[0] != "test"
+        or command[2:] != ("=", "10.9.4")
+        or quoted_command[1].startswith("'")
+    ):
+        return False
+    substitution = command[1]
+    return (
+        substitution.startswith("$(")
+        and substitution.endswith(")")
+        and substitution[2:-1].split() == ["npm", "--version"]
     )
+
+
+def _command_positions(
+    run_steps: list[tuple[int, str]],
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[tuple[int, int]]]:
+    activations: list[tuple[int, int]] = []
+    gates: list[tuple[int, int]] = []
+    workloads: list[tuple[int, int]] = []
+    for step_index, run in run_steps:
+        commands = _shell_commands(run)
+        quoted_commands = _shell_commands(run, posix=False)
+        for command_index, (command, outgoing) in enumerate(commands):
+            position = (step_index, command_index)
+            incoming = commands[command_index - 1][1] if command_index else None
+            quoted_command = (
+                quoted_commands[command_index][0]
+                if command_index < len(quoted_commands)
+                else ()
+            )
+            if (
+                command == ACTIVATION_ENABLE
+                and outgoing == "&&"
+                and command_index + 1 < len(commands)
+                and commands[command_index + 1][0] == ACTIVATION_PREPARE
+            ):
+                activations.append((step_index, command_index + 1))
+            if (
+                _is_exact_version_gate(command, quoted_command)
+                and incoming in {None, "&&"}
+                and outgoing in {None, "&&"}
+            ):
+                gates.append(position)
+            if command and command[0] in {"npm", "npx"}:
+                workloads.append(position)
+    return activations, gates, workloads
 
 
 def _assert_ci_node_custody(source: str, *, expected_node_jobs: int = 4) -> None:
@@ -116,29 +172,20 @@ def _assert_ci_node_custody(source: str, *, expected_node_jobs: int = 4) -> None
             for index, step in enumerate(steps)
             if (run := _run_script(step)) is not None
         ]
-        npm_execution_indices = [
-            index for index, run in run_steps if _runs_npm_workload(run)
-        ]
-        first_npm_execution = min(npm_execution_indices, default=len(steps))
+        activations, gates, workloads = _command_positions(run_steps)
 
         for setup_index in setup_indices:
-            activation_indices = [
-                index
-                for index, run in run_steps
-                if index > setup_index and _is_exact_activation(run)
+            later_workloads = [position for position in workloads if position[0] > setup_index]
+            assert later_workloads, f"{job_name} lacks an npm/npx workload after setup-node"
+            first_workload = min(later_workloads)
+            ordered_pairs = [
+                (activation, gate)
+                for activation in activations
+                for gate in gates
+                if activation[0] > setup_index and activation < gate < first_workload
             ]
-            version_indices = [
-                index
-                for index, run in run_steps
-                if index > setup_index and NPM_VERSION_GATE.search(run) is not None
-            ]
-            assert activation_indices, f"{job_name} lacks exact npm activation after setup-node"
-            assert version_indices, f"{job_name} lacks exact npm version gate after setup-node"
-            assert min(activation_indices) < first_npm_execution, (
-                f"{job_name} activates npm after its first npm/npx command"
-            )
-            assert min(version_indices) < first_npm_execution, (
-                f"{job_name} verifies npm after its first npm/npx command"
+            assert ordered_pairs, (
+                f"{job_name} must activate and verify exact npm before its first workload"
             )
 
     assert node_job_count == expected_node_jobs
@@ -293,6 +340,69 @@ jobs:
 """,
         """
 jobs:
+  gate-before-activation:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: test "$(npm --version)" = "10.9.4"
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: npm ci
+""",
+        """
+jobs:
+  neutralized-gate:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: test "$(npm --version)" = "10.9.4" || true
+      - run: npm ci
+""",
+        """
+jobs:
+  fallback-gate:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: test "$(npm --version)" = "10.9.4" || echo ignored
+      - run: npm ci
+""",
+        """
+jobs:
+  printed-evidence:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: printf '%s\\n' 'corepack enable npm && corepack prepare npm@10.9.4 --activate'
+      - run: echo 'test "$(npm --version)" = "10.9.4"'
+      - run: npm ci
+""",
+        """
+jobs:
+  literal-substitution:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: test '$(npm --version)' = '10.9.4'
+      - run: npm ci
+""",
+        """
+jobs:
+  piped-gate:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: test "$(npm --version)" = "10.9.4" | cat
+      - run: npm ci
+""",
+        """
+jobs:
+  non-enforcing-activation:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm ; corepack prepare npm@10.9.4 --activate
+      - run: test "$(npm --version)" = "10.9.4"
+      - run: npm ci
+""",
+        """
+jobs:
   missing-activation:
     steps:
       - uses: actions/setup-node@v6
@@ -326,6 +436,13 @@ jobs:
         "activation-after-npm-ci",
         "version-gate-after-npm-ci",
         "version-gate-after-npm-ci-in-same-run",
+        "gate-before-activation",
+        "gate-neutralized-by-or-true",
+        "gate-neutralized-by-or-echo",
+        "echo-or-printf-evidence",
+        "command-substitution-used-as-data",
+        "gate-neutralized-by-pipeline",
+        "activation-not-joined-by-and",
         "missing-activation",
         "missing-version-gate",
         "wrong-version",
@@ -350,6 +467,22 @@ jobs:
             npm --version
           )" = "10.9.4"
       - run: npm ci
+"""
+
+    _assert_ci_node_custody(workflow, expected_node_jobs=1)
+
+
+def test_ci_node_custody_accepts_valid_same_run_command_order() -> None:
+    workflow = """
+jobs:
+  valid:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: |
+          corepack enable npm &&
+          corepack prepare npm@10.9.4 --activate &&
+          test "$(npm --version)" = "10.9.4" &&
+          npm ci
 """
 
     _assert_ci_node_custody(workflow, expected_node_jobs=1)
