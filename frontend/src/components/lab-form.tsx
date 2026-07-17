@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import type { components } from "@/lib/api/schema";
 import { createBrowserApiClient } from "@/lib/api/browser-client";
+import { JudgeTour } from "@/components/judge-tour";
 import { mutationKey } from "@/lib/idempotency";
 import {
   DEFAULT_PUBLIC_EDUCATOR_CASE,
@@ -151,14 +152,21 @@ export function LabForm() {
 
   const fieldsLocked = commandLocked || caseCommitted;
   return (
-    <form
-      className="case-form"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-    >
+    <>
+      <JudgeTour currentStage="case-input" />
+      <p className="exemplar-truth">
+        The default prefilled <span className="mono">cognisect-ea-001</span> exemplar is real API
+        input with persisted provenance. It is not a mock or a demo bypass, and free entry
+        remains available.
+      </p>
+      <form
+        className="case-form"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
       <div className="form-section-heading">
         <span className="mono">01</span>
         <div>
@@ -287,6 +295,7 @@ export function LabForm() {
       <button className="primary-button" type="submit" disabled={pending}>
         {commandLocked ? "Retry exact command" : "Create and analyze"}
       </button>
-    </form>
+      </form>
+    </>
   );
 }

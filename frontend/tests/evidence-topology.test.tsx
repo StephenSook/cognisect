@@ -1,10 +1,11 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { EvidenceTopology } from "@/components/evidence-topology";
 
 describe("evidence topology", () => {
-  it("pairs the visual trace with a semantic table containing the same evidence", () => {
+  it("keeps the equivalent semantic table collapsed until the summary is activated", async () => {
     render(
       <EvidenceTopology
         label="Persisted compiler trace"
@@ -22,6 +23,11 @@ describe("evidence topology", () => {
 
     expect(screen.getByRole("group", { name: "Persisted compiler trace" })).toBeInTheDocument();
     expect(screen.getByText("Persisted · compiler v1")).toBeInTheDocument();
+    const summary = screen.getByText("Open evidence table");
+    const disclosure = summary.closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
+    await userEvent.setup().click(summary);
+    expect(disclosure).toHaveAttribute("open");
     const table = screen.getByRole("table", { name: "Persisted compiler trace table" });
     expect(within(table).getByText("Adds the written second operand")).toBeInTheDocument();
     expect(within(table).getByText("−9")).toBeInTheDocument();

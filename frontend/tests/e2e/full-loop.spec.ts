@@ -28,14 +28,18 @@ test("landing reflows at 200 percent equivalent with reduced motion", async ({ b
   const page = await context.newPage();
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Counterexamples for teacher review" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open the teacher lab" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /625 problems\.\s*One teacher-controlled probe\./ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Run the live evidence tour" })).toBeVisible();
+  await expect(page.getByText(/leave 624 eligible follow-ups/)).toBeVisible();
+  const topologySummary = page.getByText("Open evidence table");
+  await expect(topologySummary).toBeVisible();
+  await topologySummary.click();
   await expect(page.getByRole("table", { name: "Worked compiler example table" })).toBeVisible();
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /width=device-width/);
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", "COGNISECT");
-  await page.getByRole("link", { name: "Open the teacher lab" }).focus();
+  await page.getByRole("link", { name: "Run the live evidence tour" }).focus();
   expect(
-    await page.getByRole("link", { name: "Open the teacher lab" }).evaluate(
+    await page.getByRole("link", { name: "Run the live evidence tour" }).evaluate(
       (element) => getComputedStyle(element).outlineColor,
     ),
   ).toBe("rgb(255, 200, 120)");
@@ -48,6 +52,10 @@ test("landing reflows at 200 percent equivalent with reduced motion", async ({ b
     (element) => Number.parseFloat(getComputedStyle(element).animationDuration),
   );
   expect(traceAnimationSeconds).toBeLessThanOrEqual(0.001);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.setViewportSize({ width: 320, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
   await context.close();
@@ -90,7 +98,7 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   captureBrowserFailures(page, browserFailures);
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Counterexamples for teacher review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /625 problems\.\s*One teacher-controlled probe\./ })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   expect(
     await page.evaluate(
@@ -98,18 +106,17 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
     ),
   ).toBe(true);
 
-  await page.getByRole("link", { name: "Open the teacher lab" }).click();
+  await page.getByRole("link", { name: "Run the live evidence tour" }).click();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByLabel("Case source").selectOption("educator_authored");
+  await expect(page.getByText(/default prefilled cognisect-ea-001 exemplar is real API input/i)).toBeVisible();
+  await expect(page.getByLabel("Case source")).toHaveValue("public_exemplar");
+  await expect(page.getByLabel("Public case")).toHaveValue("cognisect-ea-001");
   await page.getByLabel("First integer").focus();
   expect(
     await page.getByLabel("First integer").evaluate(
       (element) => getComputedStyle(element).outlineColor,
     ),
   ).toBe("rgb(10, 98, 94)");
-  await page.getByLabel("First integer").fill("-3");
-  await page.getByLabel("Second integer").fill("5");
-  await page.getByLabel("Observed work").fill("-3 - 5 = 2");
 
   await page.route("**/api/backend/v1/cases", async (route) => {
     await route.abort("failed");
@@ -131,23 +138,36 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   await page.getByRole("button", { name: "Retry exact command" }).click();
   await expect(page).toHaveURL(/\/case\/[0-9a-f-]+$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "Compiled probe" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Live evidence tour" }).getByText("First teacher gate")).toHaveAttribute("aria-current", "step");
+  await expect(page.getByText("625", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("624", { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId("chosen-probe-reveal")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  const compiledProbeBox = await page
-    .getByRole("region", { name: "Compiled probe" })
-    .boundingBox();
+  const chosenProbeBox = await page.getByTestId("chosen-probe-reveal").boundingBox();
   const decisionBox = await page
     .getByRole("region", { name: "Teacher probe decision" })
     .boundingBox();
-  expect(compiledProbeBox).not.toBeNull();
+  const finalistsBox = await page.getByText("Inspect persisted finalists").boundingBox();
+  expect(chosenProbeBox).not.toBeNull();
   expect(decisionBox).not.toBeNull();
-  expect(compiledProbeBox!.y + compiledProbeBox!.height).toBeLessThanOrEqual(
-    decisionBox!.y,
+  expect(finalistsBox).not.toBeNull();
+  expect(chosenProbeBox!.y + chosenProbeBox!.height).toBeLessThanOrEqual(decisionBox!.y);
+  expect(decisionBox!.y + decisionBox!.height).toBeLessThanOrEqual(finalistsBox!.y);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const proofAnimationSeconds = await page.locator(".proof-sequence li").first().evaluate(
+    (element) => Number.parseFloat(getComputedStyle(element).animationDuration),
   );
+  expect(proofAnimationSeconds).toBeLessThanOrEqual(0.001);
+  const journeyViewport = page.viewportSize();
+  await page.setViewportSize({ width: 320, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (journeyViewport !== null) await page.setViewportSize(journeyViewport);
 
   const limitedResponse = await page.evaluate(async () => {
     const response = await fetch("/api/backend/v1/cases", {
@@ -196,6 +216,17 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   await expect(
     learnerPage.getByRole("heading", { level: 1, name: "Learner response" }),
   ).toBeVisible();
+  const learnerSurface = ((await learnerPage.locator("body").textContent()) ?? "").toLowerCase();
+  for (const forbidden of [
+    "hypothesis",
+    "correct answer",
+    "model request",
+    "model response",
+    "learner link",
+    "live evidence tour",
+  ]) {
+    expect(learnerSurface).not.toContain(forbidden);
+  }
   const problemText = await learnerPage.locator(".math-problem").textContent();
   const values = problemText?.match(/-?\d+/g)?.map(Number);
   expect(values).toHaveLength(2);
@@ -245,10 +276,15 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   await page.getByLabel("Teacher note").fill("Teacher-reviewed deterministic evidence.");
   await page.getByRole("button", { name: "Save review" }).click();
   await expect(page.locator('[data-state="APPROVED"]')).toBeVisible();
-  await expect(page.getByText("approved", { exact: true })).toBeVisible();
+  const finalDecision = page.getByRole("region", { name: "Persisted final teacher decision" });
+  await expect(finalDecision).toContainText("approved");
+  await expect(finalDecision).toContainText("Teacher-reviewed deterministic evidence.");
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.reload();
-  await expect(page.getByText("approved", { exact: true })).toBeVisible();
+  const persistedDecision = page.getByRole("region", { name: "Persisted final teacher decision" });
+  await expect(persistedDecision).toContainText("approved");
+  await expect(persistedDecision).toContainText("Teacher-reviewed deterministic evidence.");
+  await expect(page.getByRole("heading", { name: "Evidence receipt" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Append-only workflow audit" })).toBeVisible();
 
   const [receiptDownload] = await Promise.all([

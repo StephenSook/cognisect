@@ -1,5 +1,6 @@
 import type { components } from "@/lib/api/schema";
 import { EvidenceReceiptButton } from "@/components/evidence-receipt-button";
+import { JudgeTour } from "@/components/judge-tour";
 import { ReviewForm } from "@/components/review-form";
 
 type Workflow = components["schemas"]["WorkflowResponse"];
@@ -23,7 +24,7 @@ export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Aud
         <div><dt>Version</dt><dd>{workflow.version}</dd></div>
         <div><dt>Schema</dt><dd>{workflow.schema_version}</dd></div>
       </dl>
-      <EvidenceReceiptButton workflowId={workflow.workflow_id} />
+      <JudgeTour currentStage={workflow.review_result === null ? "teacher-gate-two" : "evidence-receipt"} />
 
       <section className="workbench-card" aria-labelledby="report-evidence-heading">
         <p className="card-index mono">LEARNER ANSWER / EXACT MATCH</p>
@@ -46,7 +47,6 @@ export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Aud
             <strong>Review-only learner rationale</strong>{workflow.learner_rationale}
           </p>
         ) : null}
-        {workflow.edited_text ? <p>Teacher-edited text: {workflow.edited_text}</p> : null}
       </section>
 
       {workflow.state === "AWAITING_REVIEW" ? (
@@ -56,11 +56,25 @@ export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Aud
           generatedProposal={workflow.generated_proposal ?? null}
         />
       ) : (
-        <section className="workbench-card" aria-labelledby="review-result-heading">
-          <h2 id="review-result-heading">Persisted review result</h2>
-          <p>{workflow.review_result?.decision ?? "No final review is persisted."}</p>
+        <section className="workbench-card final-decision" aria-labelledby="review-result-heading">
+          <p className="card-index mono">SECOND TEACHER GATE / PERSISTED</p>
+          <h2 id="review-result-heading">Persisted final teacher decision</h2>
+          <p><strong>Decision</strong>{workflow.review_result?.decision ?? "No final review is persisted."}</p>
+          {workflow.review_result?.note ? (
+            <p><strong>Teacher note</strong>{workflow.review_result.note}</p>
+          ) : null}
+          {workflow.review_result?.edited_text ? (
+            <p><strong>Teacher-edited proposal</strong>{workflow.review_result.edited_text}</p>
+          ) : null}
         </section>
       )}
+
+      <section className="workbench-card receipt-stage" aria-labelledby="receipt-stage-heading">
+        <p className="card-index mono">OWNER AUTHORIZED / PRIVACY SAFE</p>
+        <h2 id="receipt-stage-heading">Evidence receipt</h2>
+        <p>The download begins only when the owner activates the real receipt endpoint.</p>
+        <EvidenceReceiptButton workflowId={workflow.workflow_id} />
+      </section>
 
       <section className="audit-stage" aria-labelledby="audit-heading">
         <p className="card-index mono">APPEND ONLY / READBACK</p>

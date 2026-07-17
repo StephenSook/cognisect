@@ -240,7 +240,15 @@ describe("learner response form", () => {
       await screen.findByRole("heading", { level: 1, name: "Response received" }),
     ).toBeInTheDocument();
     const text = container.textContent ?? "";
-    for (const forbidden of ["hypothesis", "correct answer", "teacher", "model request"]) {
+    for (const forbidden of [
+      "hypothesis",
+      "correct answer",
+      "teacher",
+      "model request",
+      "model response",
+      "owner link",
+      "live evidence tour",
+    ]) {
       expect(text.toLowerCase()).not.toContain(forbidden);
     }
   });
@@ -444,6 +452,118 @@ describe("workflow polling", () => {
     expect(fetchImplementation).toHaveBeenCalledOnce();
   });
 
+  it("uses exact bounded delays of 2, 4, 8, and 15 seconds and caps there", async () => {
+    vi.useFakeTimers();
+    const fetchImplementation = vi.fn(async () => Response.json(workflowFixture("PROBE_READY")));
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetchImplementation).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(5);
+  });
+
+  it("resets the next poll to two seconds after a persisted state or version change", async () => {
+    vi.useFakeTimers();
+    const changed = workflowFixture("AWAITING_RESPONSE");
+    changed.version = 3;
+    const fetchImplementation = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json(workflowFixture("PROBE_READY")))
+      .mockResolvedValueOnce(Response.json(changed))
+      .mockResolvedValue(Response.json(changed));
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+  });
+
+  it("advances and caps the same 2, 4, 8, and 15 second schedule after failures", async () => {
+    vi.useFakeTimers();
+    const fetchImplementation = vi.fn().mockRejectedValue(new Error("backend unavailable"));
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(5);
+    expect(screen.getByText("Workflow refresh is temporarily unavailable.")).toBeInTheDocument();
+  });
+
+  it("stops after a terminal readback and cancels scheduled work on cleanup", async () => {
+    vi.useFakeTimers();
+    const terminal = workflowFixture("APPROVED");
+    const fetchImplementation = vi.fn(async () => Response.json(terminal));
+    vi.stubGlobal("fetch", fetchImplementation);
+    const terminalRender = render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    terminalRender.unmount();
+
+    fetchImplementation.mockClear();
+    const activeRender = render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+    activeRender.unmount();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  it("does not issue a scheduled GET after a teacher decision makes the workflow terminal", async () => {
+    vi.useFakeTimers();
+    const terminal = workflowFixture("ABSTAINED");
+    const fetchImplementation = vi.fn(async () =>
+      Response.json({ response_url: null, expires_at: null, workflow: terminal }),
+    );
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Decline probe" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+  });
+
+  it("places the only probe decision after proof summary and before secondary details", () => {
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    const chosenProbe = screen.getByTestId("chosen-probe-reveal");
+    const decisions = screen.getAllByRole("region", { name: "Teacher probe decision" });
+    const finalistSummary = screen.getByText("Inspect persisted finalists");
+    const topologySummary = screen.getByText("Open evidence table");
+    expect(decisions).toHaveLength(1);
+    expect(chosenProbe.compareDocumentPosition(decisions[0]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(decisions[0]!.compareDocumentPosition(finalistSummary)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(decisions[0]!.compareDocumentPosition(topologySummary)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
   it("keeps the approved learner link available and provides copy success", async () => {
     const responseUrl = "http://localhost:3000/respond/raw-learner-token";
     vi.stubGlobal(
@@ -493,10 +613,11 @@ describe("workflow polling", () => {
         "The teacher declined this probe. The workflow abstained and no learner link was created.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+    expect(screen.getByText("First teacher gate")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
       "Teacher approvalHuman release gateAbstained",
     );
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
       "Evidence updateExact prediction matchingNo update · abstained",
     );
     declined.unmount();
@@ -520,10 +641,10 @@ describe("workflow polling", () => {
         "The teacher declined this probe. The workflow abstained and no learner link was created.",
       ),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
       "Teacher approvalHuman release gateApproved for release",
     );
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
       "Learner responseOne strict signed integerResponse recorded",
     );
   });

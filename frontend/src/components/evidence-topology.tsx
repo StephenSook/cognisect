@@ -126,7 +126,7 @@ export function EvidenceTopology({
           </g>
         </g>
       </svg>
-      <details className="topology-fallback" open>
+      <details className="topology-fallback">
         <summary>Open evidence table</summary>
         <div className="table-scroll">
           <table aria-label={`${label} table`}>

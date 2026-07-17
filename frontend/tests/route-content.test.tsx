@@ -3,11 +3,39 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ReportView } from "@/components/report-view";
 import { RuntimeEvidence } from "@/components/runtime-evidence";
+import HomePage from "@/app/page";
+import LabPage from "@/app/lab/page";
 import { workflowFixture } from "./fixtures";
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
+
+describe("live evidence tour route content", () => {
+  it("leads with the deterministic 625-to-624 mechanism and a real lab route", () => {
+    render(<HomePage />);
+
+    expect(
+      screen.getByRole("heading", { name: /625 problems\.\s*One teacher-controlled probe\./ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/excludes the original problem to leave 624 eligible follow-ups/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Run the live evidence tour" })).toHaveAttribute(
+      "href",
+      "/lab",
+    );
+    expect(screen.getByRole("navigation", { name: "Live evidence tour" })).toBeInTheDocument();
+  });
+
+  it("identifies the default exemplar as real API input while preserving free entry", () => {
+    render(<LabPage />);
+
+    expect(screen.getByText(/default prefilled/i)).toHaveTextContent("cognisect-ea-001");
+    expect(screen.getByText(/real API input with persisted provenance/i)).toBeInTheDocument();
+    expect(screen.getByText(/not a mock or a demo bypass/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Case source")).toHaveValue("public_exemplar");
+    expect(screen.getByLabelText("Public case")).toHaveValue("cognisect-ea-001");
+  });
+});
 
 describe("teacher report content", () => {
   it("renders persisted deterministic evidence, proposal, review, and audit readback", () => {
@@ -50,6 +78,27 @@ describe("teacher report content", () => {
     expect(download.closest("form")).toHaveAttribute(
       "action",
       `/api/backend/v1/workflows/${workflow.workflow_id}/receipt`,
+    );
+  });
+
+  it("renders the persisted final teacher note and edit separately from deterministic evidence", () => {
+    const workflow = workflowFixture("EDITED");
+    workflow.learner_rationale = "I moved left from the first number.";
+    workflow.review_result = {
+      decision: "edited",
+      note: "Persisted teacher note after review.",
+      edited_text: "Persisted teacher-edited proposal.",
+      created_at: "2026-07-16T12:00:00Z",
+    };
+    workflow.edited_text = "Persisted teacher-edited proposal.";
+
+    render(<ReportView workflow={workflow} audit={{ workflow_id: workflow.workflow_id, events: [] }} />);
+
+    const result = screen.getByRole("region", { name: "Persisted final teacher decision" });
+    expect(result).toHaveTextContent("Persisted teacher note after review.");
+    expect(result).toHaveTextContent("Persisted teacher-edited proposal.");
+    expect(screen.getByText("Review-only learner rationale").parentElement).toHaveTextContent(
+      "I moved left from the first number.",
     );
   });
 });
