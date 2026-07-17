@@ -66,6 +66,20 @@ def test_development_settings_allow_local_public_url_but_require_explicit_pepper
     assert settings.database_url.startswith("postgresql+")
 
 
+def test_settings_accept_true_environment_string_for_strict_msgpack(monkeypatch):
+    monkeypatch.setenv("LANGGRAPH_STRICT_MSGPACK", "true")
+
+    settings = Settings(
+        _env_file=None,
+        **{
+            **VALID_ENV,
+            "app_env": "production",
+        },
+    )
+
+    assert settings.langgraph_strict_msgpack is True
+
+
 def test_custom_case_requires_deidentified_attestation_and_forbids_identifiers():
     payload = {
         "source_tier": "custom",

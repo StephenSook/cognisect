@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     model_sol: Literal["gpt-5.6-sol"] = "gpt-5.6-sol"
     langgraph_strict_msgpack: Literal[True] = True
 
+    @field_validator("langgraph_strict_msgpack", mode="before")
+    @classmethod
+    def strict_msgpack_accepts_true_environment_string(cls, value: object) -> object:
+        """Normalize the only permitted environment-string representation."""
+        if isinstance(value, str) and value.strip().lower() == "true":
+            return True
+        return value
+
     @field_validator("database_url")
     @classmethod
     def database_is_explicit_async_postgres(cls, value: str) -> str:
