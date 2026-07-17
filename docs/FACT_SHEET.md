@@ -21,7 +21,7 @@ review, video, and submission evidence are not yet recorded.
   and 6/6 reproduced specification hashes. It makes 0 model calls.
 - Frontend verification at commit `b8a68f5`: 48 Vitest tests and 8 Playwright
   journeys passed; npm audit reported 0 known vulnerabilities.
-- Backend verification for this release slice: 248 tests passed against Postgres
+- Backend verification for this release slice: 250 tests passed against Postgres
   in the fresh full suite.
 
 ## Evidence still required
