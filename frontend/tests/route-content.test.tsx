@@ -46,6 +46,11 @@ describe("teacher report content", () => {
     expect(screen.getByText("Review-only learner rationale").parentElement).toHaveTextContent(
       "I kept the second sign and counted left.",
     );
+    const download = screen.getByRole("button", { name: "Download evidence receipt" });
+    expect(download.closest("form")).toHaveAttribute(
+      "action",
+      `/api/backend/v1/workflows/${workflow.workflow_id}/receipt`,
+    );
   });
 });
 

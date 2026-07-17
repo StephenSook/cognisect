@@ -100,6 +100,7 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
 
   await page.getByRole("link", { name: "Open the teacher lab" }).click();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByLabel("Case source").selectOption("educator_authored");
   await page.getByLabel("First integer").focus();
   expect(
     await page.getByLabel("First integer").evaluate(
@@ -215,6 +216,14 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   await page.reload();
   await expect(page.getByText("approved", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Append-only workflow audit" })).toBeVisible();
+
+  const [receiptDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Download evidence receipt" }).click(),
+  ]);
+  expect(receiptDownload.suggestedFilename()).toBe(
+    `cognisect-evidence-${new URL(page.url()).pathname.split("/").at(-1)!}.json`,
+  );
 
   const workflowId = new URL(page.url()).pathname.split("/").at(-1)!;
   await page.goto(`/runtime?workflow_id=${workflowId}`);

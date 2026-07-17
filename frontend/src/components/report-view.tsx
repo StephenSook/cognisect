@@ -1,4 +1,5 @@
 import type { components } from "@/lib/api/schema";
+import { EvidenceReceiptButton } from "@/components/evidence-receipt-button";
 import { ReviewForm } from "@/components/review-form";
 
 type Workflow = components["schemas"]["WorkflowResponse"];
@@ -22,6 +23,7 @@ export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Aud
         <div><dt>Version</dt><dd>{workflow.version}</dd></div>
         <div><dt>Schema</dt><dd>{workflow.schema_version}</dd></div>
       </dl>
+      <EvidenceReceiptButton workflowId={workflow.workflow_id} />
 
       <section className="workbench-card" aria-labelledby="report-evidence-heading">
         <p className="card-index mono">LEARNER ANSWER / EXACT MATCH</p>

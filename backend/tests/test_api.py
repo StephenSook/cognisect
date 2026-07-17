@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
@@ -16,6 +18,7 @@ from cognisect.config import Settings
 from cognisect.database import create_session_factory
 from cognisect.db_models import (
     CaseRecord,
+    GeneratedProposalRecord,
     InvalidLearnerCommandRecord,
     LearnerResponseRecord,
     LearnerTokenRecord,
@@ -34,6 +37,7 @@ EXPECTED_PATHS = {
     "/v1/respond/{token}",
     "/v1/workflows/{workflow_id}/review",
     "/v1/workflows/{workflow_id}/audit",
+    "/v1/workflows/{workflow_id}/receipt",
     "/health",
     "/version",
 }
@@ -73,7 +77,7 @@ def api_settings() -> Settings:
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
         public_app_url="http://localhost:3000",
-        openai_api_key="",
+        openai_api_key="FORBIDDEN-PROVIDER-CREDENTIAL-41ac",
     )
 
 
@@ -325,6 +329,112 @@ async def test_cross_owner_access_returns_same_non_enumerating_404(app):
         ).get(f"/v1/workflows/{workflow_id}")
     assert cross_owner.status_code == missing_owner.status_code == 404
     assert cross_owner.json() == missing_owner.json() == {"detail": "resource not found"}
+
+
+@pytest.mark.postgres
+async def test_owner_receipt_includes_proof_and_excludes_every_forbidden_content_class(
+    client, app, db_engine
+):
+    observed_work = "FORBIDDEN-RAW-OBSERVED-WORK-f864"
+    rationale = "FORBIDDEN-LEARNER-RATIONALE-7bd1"
+    generated_prose = "FORBIDDEN-GENERATED-PROSE-f2d8"
+    teacher_note = "FORBIDDEN-TEACHER-NOTE-f90a"
+    edited_prose = "FORBIDDEN-EDITED-PROSE-781e"
+    provider_credential = app.state.settings.openai_api_key.get_secret_value()
+    owner_secret = client.cookies.get(OWNER_COOKIE_NAME)
+    created = await client.post(
+        "/v1/cases",
+        headers={"Idempotency-Key": "receipt-create-key"},
+        json={**case_payload(), "observed_work": observed_work},
+    )
+    identifiers = created.json()
+    analyzed = await client.post(
+        f"/v1/cases/{identifiers['case_id']}/analysis",
+        headers={"Idempotency-Key": "receipt-analysis-key"},
+        json={"expected_version": 0},
+    )
+    approved = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
+        headers={"Idempotency-Key": "receipt-approval-key"},
+        json={"expected_version": analyzed.json()["version"], "approved": True},
+    )
+    response_url = approved.json()["response_url"]
+    capability_token = urlparse(response_url).path.rsplit("/", 1)[-1]
+    learner_probe = await client.get(f"/v1/respond/{capability_token}")
+    problem = learner_probe.json()["problem"]
+    submitted = await client.post(
+        f"/v1/respond/{capability_token}",
+        headers={"Idempotency-Key": "receipt-submit-key"},
+        json={"answer": problem["a"] - problem["b"], "rationale": rationale},
+    )
+    assert submitted.status_code == 200
+    factory = create_session_factory(db_engine)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(GeneratedProposalRecord)
+            .where(GeneratedProposalRecord.workflow_id == identifiers["workflow_id"])
+            .values(generated_text=generated_prose)
+        )
+    pending = await client.get(f"/v1/workflows/{identifiers['workflow_id']}")
+    reviewed = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/review",
+        headers={"Idempotency-Key": "receipt-review-key"},
+        json={
+            "expected_version": pending.json()["version"],
+            "decision": "edited",
+            "note": teacher_note,
+            "edited_text": edited_prose,
+        },
+    )
+    assert reviewed.status_code == 200
+
+    receipt_response = await client.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+    serialized = receipt_response.text
+    receipt = receipt_response.json()
+
+    assert receipt_response.status_code == 200
+    assert receipt_response.headers["cache-control"] == "no-store, private"
+    assert receipt_response.headers["content-disposition"] == (
+        f'attachment; filename="cognisect-evidence-{identifiers["workflow_id"]}.json"'
+    )
+    assert receipt["receipt_version"] == "evidence_receipt.v1"
+    assert receipt["compiled_probe"]["proof"]["domain_problem_count"] == 625
+    assert [event["sequence"] for event in receipt["audit_events"]] == list(range(1, 9))
+    canonical_payload = {key: value for key, value in receipt.items() if key != "receipt_hash"}
+    canonical = json.dumps(
+        canonical_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    assert receipt["receipt_hash"] == hashlib.sha256(canonical).hexdigest()
+    for forbidden in (
+        observed_work,
+        rationale,
+        capability_token,
+        response_url,
+        owner_secret,
+        generated_prose,
+        teacher_note,
+        edited_prose,
+        provider_credential,
+    ):
+        assert forbidden not in serialized
+
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as missing_owner,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies={OWNER_COOKIE_NAME: generate_secret()},
+        ) as other_owner,
+    ):
+        missing = await missing_owner.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+        cross_owner = await other_owner.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+    assert missing.status_code == cross_owner.status_code == 404
+    assert missing.json() == cross_owner.json() == {"detail": "resource not found"}
 
 
 @pytest.mark.postgres

@@ -269,6 +269,91 @@ class AuditResponse(StrictContractModel):
     events: list[AuditEventResponse]
 
 
+class EvidenceReceiptHypothesis(StrictContractModel):
+    """One prose-free closed-registry hypothesis proof."""
+
+    template_id: str
+    rank: int
+    truth_table_hash: str
+
+
+class EvidenceReceiptPrediction(StrictContractModel):
+    """One deterministic probe prediction without source prose."""
+
+    template_id: str
+    rank: int
+    prediction: int
+
+
+class EvidenceReceiptCandidateProof(StrictContractModel):
+    """One explicitly allowlisted compiler-ranking candidate."""
+
+    problem: SignedProblemDTO
+    predictions: list[int]
+    distinct_output_count: int
+    top_two_separated: bool
+    distinguished_pair_count: int
+    operand_magnitude: int
+    correct_result_magnitude: int
+    rank: int
+
+
+class EvidenceReceiptCompilerProof(StrictContractModel):
+    """Complete deterministic compiler search evidence."""
+
+    domain_problem_count: int
+    eligible_candidate_count: int
+    separating_candidate_count: int
+    chosen_candidate_rank: int
+    top_candidates: list[EvidenceReceiptCandidateProof]
+
+
+class EvidenceReceiptCompiledProbe(StrictContractModel):
+    """Persisted probe specification and independently reproducible proof."""
+
+    original_problem: SignedProblemDTO
+    problem: SignedProblemDTO
+    correct_prediction: int
+    specification_hash: str
+    registry_version: str
+    compiler_version: str
+    predictions: list[EvidenceReceiptPrediction]
+    proof: EvidenceReceiptCompilerProof
+
+
+class EvidenceReceiptPayload(StrictContractModel):
+    """Hashable privacy-safe receipt fields, excluding the hash itself."""
+
+    receipt_version: Literal["evidence_receipt.v1"] = "evidence_receipt.v1"
+    workflow_id: UUID
+    case_id: UUID
+    source_tier: SourceTier
+    provenance_record_id: str | None
+    state: str
+    schema_version: str
+    registry_version: str
+    prompt_version: str
+    compiler_version: str
+    created_at: datetime
+    updated_at: datetime
+    workflow_version: int
+    accepted_hypotheses: list[EvidenceReceiptHypothesis]
+    compiled_probe: EvidenceReceiptCompiledProbe | None
+    deterministic_evidence: list[EvidenceStatusResponse]
+    review_decision: ReviewDecision | None
+    reviewed_at: datetime | None
+    audit_events: list[AuditEventResponse]
+
+
+class EvidenceReceiptResponse(EvidenceReceiptPayload):
+    """Owner-authorized receipt with a canonical payload hash."""
+
+    receipt_hash: Annotated[
+        str,
+        StringConstraints(strict=True, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+    ]
+
+
 class VersionResponse(StrictContractModel):
     """Public build and deterministic-contract versions."""
 

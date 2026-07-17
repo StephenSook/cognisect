@@ -120,6 +120,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workflows/{workflow_id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Receipt Route */
+        get: operations["receipt_route_v1_workflows__workflow_id__receipt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workflows/{workflow_id}/review": {
         parameters: {
             query?: never;
@@ -336,6 +353,150 @@ export interface components {
              * Format: uuid
              */
             workflow_id: string;
+        };
+        /**
+         * EvidenceReceiptCandidateProof
+         * @description One explicitly allowlisted compiler-ranking candidate.
+         */
+        EvidenceReceiptCandidateProof: {
+            /** Correct Result Magnitude */
+            correct_result_magnitude: number;
+            /** Distinct Output Count */
+            distinct_output_count: number;
+            /** Distinguished Pair Count */
+            distinguished_pair_count: number;
+            /** Operand Magnitude */
+            operand_magnitude: number;
+            /** Predictions */
+            predictions: number[];
+            problem: components["schemas"]["SignedProblemDTO"];
+            /** Rank */
+            rank: number;
+            /** Top Two Separated */
+            top_two_separated: boolean;
+        };
+        /**
+         * EvidenceReceiptCompiledProbe
+         * @description Persisted probe specification and independently reproducible proof.
+         */
+        EvidenceReceiptCompiledProbe: {
+            /** Compiler Version */
+            compiler_version: string;
+            /** Correct Prediction */
+            correct_prediction: number;
+            original_problem: components["schemas"]["SignedProblemDTO"];
+            /** Predictions */
+            predictions: components["schemas"]["EvidenceReceiptPrediction"][];
+            problem: components["schemas"]["SignedProblemDTO"];
+            proof: components["schemas"]["EvidenceReceiptCompilerProof"];
+            /** Registry Version */
+            registry_version: string;
+            /** Specification Hash */
+            specification_hash: string;
+        };
+        /**
+         * EvidenceReceiptCompilerProof
+         * @description Complete deterministic compiler search evidence.
+         */
+        EvidenceReceiptCompilerProof: {
+            /** Chosen Candidate Rank */
+            chosen_candidate_rank: number;
+            /** Domain Problem Count */
+            domain_problem_count: number;
+            /** Eligible Candidate Count */
+            eligible_candidate_count: number;
+            /** Separating Candidate Count */
+            separating_candidate_count: number;
+            /** Top Candidates */
+            top_candidates: components["schemas"]["EvidenceReceiptCandidateProof"][];
+        };
+        /**
+         * EvidenceReceiptHypothesis
+         * @description One prose-free closed-registry hypothesis proof.
+         */
+        EvidenceReceiptHypothesis: {
+            /** Rank */
+            rank: number;
+            /** Template Id */
+            template_id: string;
+            /** Truth Table Hash */
+            truth_table_hash: string;
+        };
+        /**
+         * EvidenceReceiptPrediction
+         * @description One deterministic probe prediction without source prose.
+         */
+        EvidenceReceiptPrediction: {
+            /** Prediction */
+            prediction: number;
+            /** Rank */
+            rank: number;
+            /** Template Id */
+            template_id: string;
+        };
+        /**
+         * EvidenceReceiptResponse
+         * @description Owner-authorized receipt with a canonical payload hash.
+         */
+        EvidenceReceiptResponse: {
+            /** Accepted Hypotheses */
+            accepted_hypotheses: components["schemas"]["EvidenceReceiptHypothesis"][];
+            /** Audit Events */
+            audit_events: components["schemas"]["AuditEventResponse"][];
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            compiled_probe: components["schemas"]["EvidenceReceiptCompiledProbe"] | null;
+            /** Compiler Version */
+            compiler_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deterministic Evidence */
+            deterministic_evidence: components["schemas"]["EvidenceStatusResponse"][];
+            /** Prompt Version */
+            prompt_version: string;
+            /** Provenance Record Id */
+            provenance_record_id: string | null;
+            /** Receipt Hash */
+            receipt_hash: string;
+            /**
+             * Receipt Version
+             * @default evidence_receipt.v1
+             * @constant
+             */
+            receipt_version: "evidence_receipt.v1";
+            /** Registry Version */
+            registry_version: string;
+            /** Review Decision */
+            review_decision: ("approved" | "edited" | "rejected" | "abstained") | null;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Schema Version */
+            schema_version: string;
+            /**
+             * Source Tier
+             * @enum {string}
+             */
+            source_tier: "authentic" | "synthetic" | "mixed" | "published_exemplar" | "educator_authored" | "custom";
+            /** State */
+            state: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Workflow Id
+             * Format: uuid
+             */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: number;
         };
         /**
          * EvidenceStatusResponse
@@ -898,6 +1059,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LearnerTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receipt_route_v1_workflows__workflow_id__receipt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceReceiptResponse"];
                 };
             };
             /** @description Validation Error */

@@ -371,6 +371,365 @@
         "title": "CreateCaseResponse",
         "type": "object"
       },
+      "EvidenceReceiptCandidateProof": {
+        "additionalProperties": false,
+        "description": "One explicitly allowlisted compiler-ranking candidate.",
+        "properties": {
+          "correct_result_magnitude": {
+            "title": "Correct Result Magnitude",
+            "type": "integer"
+          },
+          "distinct_output_count": {
+            "title": "Distinct Output Count",
+            "type": "integer"
+          },
+          "distinguished_pair_count": {
+            "title": "Distinguished Pair Count",
+            "type": "integer"
+          },
+          "operand_magnitude": {
+            "title": "Operand Magnitude",
+            "type": "integer"
+          },
+          "predictions": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Predictions",
+            "type": "array"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "top_two_separated": {
+            "title": "Top Two Separated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "problem",
+          "predictions",
+          "distinct_output_count",
+          "top_two_separated",
+          "distinguished_pair_count",
+          "operand_magnitude",
+          "correct_result_magnitude",
+          "rank"
+        ],
+        "title": "EvidenceReceiptCandidateProof",
+        "type": "object"
+      },
+      "EvidenceReceiptCompiledProbe": {
+        "additionalProperties": false,
+        "description": "Persisted probe specification and independently reproducible proof.",
+        "properties": {
+          "compiler_version": {
+            "title": "Compiler Version",
+            "type": "string"
+          },
+          "correct_prediction": {
+            "title": "Correct Prediction",
+            "type": "integer"
+          },
+          "original_problem": {
+            "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReceiptPrediction"
+            },
+            "title": "Predictions",
+            "type": "array"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/EvidenceReceiptCompilerProof"
+          },
+          "registry_version": {
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "specification_hash": {
+            "title": "Specification Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "original_problem",
+          "problem",
+          "correct_prediction",
+          "specification_hash",
+          "registry_version",
+          "compiler_version",
+          "predictions",
+          "proof"
+        ],
+        "title": "EvidenceReceiptCompiledProbe",
+        "type": "object"
+      },
+      "EvidenceReceiptCompilerProof": {
+        "additionalProperties": false,
+        "description": "Complete deterministic compiler search evidence.",
+        "properties": {
+          "chosen_candidate_rank": {
+            "title": "Chosen Candidate Rank",
+            "type": "integer"
+          },
+          "domain_problem_count": {
+            "title": "Domain Problem Count",
+            "type": "integer"
+          },
+          "eligible_candidate_count": {
+            "title": "Eligible Candidate Count",
+            "type": "integer"
+          },
+          "separating_candidate_count": {
+            "title": "Separating Candidate Count",
+            "type": "integer"
+          },
+          "top_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReceiptCandidateProof"
+            },
+            "title": "Top Candidates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "domain_problem_count",
+          "eligible_candidate_count",
+          "separating_candidate_count",
+          "chosen_candidate_rank",
+          "top_candidates"
+        ],
+        "title": "EvidenceReceiptCompilerProof",
+        "type": "object"
+      },
+      "EvidenceReceiptHypothesis": {
+        "additionalProperties": false,
+        "description": "One prose-free closed-registry hypothesis proof.",
+        "properties": {
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          },
+          "truth_table_hash": {
+            "title": "Truth Table Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "rank",
+          "truth_table_hash"
+        ],
+        "title": "EvidenceReceiptHypothesis",
+        "type": "object"
+      },
+      "EvidenceReceiptPrediction": {
+        "additionalProperties": false,
+        "description": "One deterministic probe prediction without source prose.",
+        "properties": {
+          "prediction": {
+            "title": "Prediction",
+            "type": "integer"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "rank",
+          "prediction"
+        ],
+        "title": "EvidenceReceiptPrediction",
+        "type": "object"
+      },
+      "EvidenceReceiptResponse": {
+        "additionalProperties": false,
+        "description": "Owner-authorized receipt with a canonical payload hash.",
+        "properties": {
+          "accepted_hypotheses": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReceiptHypothesis"
+            },
+            "title": "Accepted Hypotheses",
+            "type": "array"
+          },
+          "audit_events": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEventResponse"
+            },
+            "title": "Audit Events",
+            "type": "array"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "compiled_probe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvidenceReceiptCompiledProbe"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compiler_version": {
+            "title": "Compiler Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deterministic_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceStatusResponse"
+            },
+            "title": "Deterministic Evidence",
+            "type": "array"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provenance_record_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Record Id"
+          },
+          "receipt_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Receipt Hash",
+            "type": "string"
+          },
+          "receipt_version": {
+            "const": "evidence_receipt.v1",
+            "default": "evidence_receipt.v1",
+            "title": "Receipt Version",
+            "type": "string"
+          },
+          "registry_version": {
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "review_decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "approved",
+                  "edited",
+                  "rejected",
+                  "abstained"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Decision"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_tier": {
+            "enum": [
+              "authentic",
+              "synthetic",
+              "mixed",
+              "published_exemplar",
+              "educator_authored",
+              "custom"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "case_id",
+          "source_tier",
+          "provenance_record_id",
+          "state",
+          "schema_version",
+          "registry_version",
+          "prompt_version",
+          "compiler_version",
+          "created_at",
+          "updated_at",
+          "workflow_version",
+          "accepted_hypotheses",
+          "compiled_probe",
+          "deterministic_evidence",
+          "review_decision",
+          "reviewed_at",
+          "audit_events",
+          "receipt_hash"
+        ],
+        "title": "EvidenceReceiptResponse",
+        "type": "object"
+      },
       "EvidenceStatusResponse": {
         "additionalProperties": false,
         "description": "One deterministic status from the closed evidence vocabulary.",
@@ -1527,6 +1886,62 @@
           }
         },
         "summary": "Approve Probe Route"
+      }
+    },
+    "/v1/workflows/{workflow_id}/receipt": {
+      "get": {
+        "operationId": "receipt_route_v1_workflows__workflow_id__receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cognisect_owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cognisect Owner"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceReceiptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Receipt Route"
       }
     },
     "/v1/workflows/{workflow_id}/review": {

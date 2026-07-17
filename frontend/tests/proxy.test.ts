@@ -98,6 +98,30 @@ describe("same-origin backend proxy", () => {
     expect(upstream).toHaveBeenCalledOnce();
   });
 
+  it("forwards owner-authorized receipt downloads and their exact filename", async () => {
+    const workflowId = "00000000-0000-4000-8000-000000000001";
+    const filename = `cognisect-evidence-${workflowId}.json`;
+    const upstream = vi.fn(async () =>
+      new Response('{"receipt_version":"evidence_receipt.v1"}', {
+        headers: { "Content-Disposition": `attachment; filename="${filename}"` },
+      }),
+    );
+    const response = await forwardBackendRequest({
+      request: new Request(
+        `http://frontend.test/api/backend/v1/workflows/${workflowId}/receipt`,
+        { headers: { Cookie: "cognisect_owner=owner-capability" } },
+      ),
+      path: ["v1", "workflows", workflowId, "receipt"],
+      backendUrl: "http://backend.test",
+      fetchImplementation: upstream,
+    });
+
+    expect(upstream).toHaveBeenCalledOnce();
+    expect(response.headers.get("content-disposition")).toBe(
+      `attachment; filename="${filename}"`,
+    );
+  });
+
   it("rejects oversized raw bodies before forwarding and preserves learner privacy", async () => {
     const upstream = vi.fn();
     const oversized = "x".repeat(32_769);

@@ -17,10 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from cognisect.api_models import (
     AcceptedHypothesisResponse,
     AnswerConstraints,
+    AuditEventResponse,
+    AuditResponse,
     CompiledProbeResponse,
     CompilerCandidateProof,
     CompilerSearchProof,
     CreateCaseRequest,
+    EvidenceReceiptResponse,
     EvidenceStatusResponse,
     LearnerProbeResponse,
     LearnerSubmitRequest,
@@ -71,6 +74,7 @@ from cognisect.interpreter import (
     truth_table_for_template,
 )
 from cognisect.models import RuleMappingV1
+from cognisect.receipt import build_evidence_receipt
 from cognisect.repositories import (
     OwnedResourceNotFoundError,
     get_owned_workflow,
@@ -1607,6 +1611,31 @@ class WorkflowService:
                     )
                 ).all()
             )
+
+    async def get_evidence_receipt(
+        self, owner_secret: str, workflow_id: UUID
+    ) -> EvidenceReceiptResponse:
+        """Build one owner-authorized receipt from the safe DTO allowlist."""
+        workflow = await self.get_workflow_dto(owner_secret, workflow_id)
+        events = await self.get_audit(owner_secret, workflow_id)
+        return build_evidence_receipt(
+            workflow=workflow,
+            audit=AuditResponse(
+                workflow_id=workflow_id,
+                events=[
+                    AuditEventResponse(
+                        sequence=event.sequence,
+                        from_state=(
+                            event.from_state.value if event.from_state is not None else None
+                        ),
+                        to_state=event.to_state.value,
+                        version=event.version,
+                        occurred_at=event.occurred_at,
+                    )
+                    for event in events
+                ],
+            ),
+        )
 
     async def delete_workflow(
         self,

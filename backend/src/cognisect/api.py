@@ -25,6 +25,7 @@ from cognisect.api_models import (
     AuditResponse,
     CreateCaseRequest,
     CreateCaseResponse,
+    EvidenceReceiptResponse,
     LearnerProbeResponse,
     LearnerReceiptResponse,
     LearnerSubmitRequest,
@@ -404,6 +405,22 @@ def create_app(  # noqa: C901, PLR0915
                 for event in events
             ],
         )
+
+    @app.get(
+        "/v1/workflows/{workflow_id}/receipt",
+        response_model=EvidenceReceiptResponse,
+    )
+    async def receipt_route(
+        workflow_id: UUID,
+        response: Response,
+        owner_secret: OwnerCookie = None,
+    ) -> EvidenceReceiptResponse:
+        receipt = await service.get_evidence_receipt(_owner_or_404(owner_secret), workflow_id)
+        _privacy_headers(response)
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="cognisect-evidence-{workflow_id}.json"'
+        )
+        return receipt
 
     @app.delete("/v1/workflows/{workflow_id}", status_code=204)
     async def delete_workflow_route(

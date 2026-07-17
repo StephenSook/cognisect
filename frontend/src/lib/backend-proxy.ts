@@ -7,6 +7,7 @@ import {
 const ALLOWED_METHODS = new Set(["DELETE", "GET", "POST"]);
 const RESPONSE_HEADERS = [
   "cache-control",
+  "content-disposition",
   "content-type",
   "referrer-policy",
   "set-cookie",
@@ -54,7 +55,7 @@ function isAllowedPath(method: string, path: string[]): boolean {
   if (path.length !== 4) return false;
   const action = path[3];
   return (
-    (action === "audit" && method === "GET") ||
+    ((action === "audit" || action === "receipt") && method === "GET") ||
     ((action === "probe-approval" || action === "review") && method === "POST")
   );
 }
