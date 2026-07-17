@@ -8,7 +8,7 @@
   "deterministic_evidence_present": true,
   "educational_record_deleted": true,
   "exact_replay_status": 200,
-  "generated_at": "2026-07-17T05:55:32+00:00",
+  "generated_at": "2026-07-17T07:01:02+00:00",
   "health_status": 200,
   "persisted_state": "AWAITING_REVIEW",
   "post_deletion_read_status": 404,
@@ -16,5 +16,5 @@
   "provider_sha_verified": true,
   "schema_version": "cognisect.production-stress-report.v1",
   "served_version": "0.1.0",
-  "tested_release_sha": "c66ef0cd84ed781cd441d3c5ad81e09a22aafe9d"
+  "tested_release_sha": "6a7d848b9444a63b4ed62571e55b735c644b39ed"
 }

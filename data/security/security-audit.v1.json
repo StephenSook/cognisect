@@ -1,8 +1,8 @@
 {
   "schema_version": "cognisect.security-audit.v1",
-  "audited_at": "2026-07-17T06:10:00Z",
+  "audited_at": "2026-07-17T07:01:02Z",
   "production_stress_report": "data/security/production-stress-report.v1.json",
-  "tested_production_release_sha": "c66ef0cd84ed781cd441d3c5ad81e09a22aafe9d",
+  "tested_production_release_sha": "6a7d848b9444a63b4ed62571e55b735c644b39ed",
   "areas": {
     "authentication_and_authorization": {
       "status": "pass",

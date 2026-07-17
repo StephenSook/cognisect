@@ -65,7 +65,7 @@ Post-deletion read: HTTP 404
 
 8 Playwright journeys passed
 
-Tested preview SHA: `c66ef0cd84ed781cd441d3c5ad81e09a22aafe9d`
+Tested preview SHA: `6a7d848b9444a63b4ed62571e55b735c644b39ed`
 
 - The public stress run created one disposable de-identified workflow, confirmed
   GET did not consume its learner capability, accepted exactly one of 50
