@@ -76,7 +76,7 @@ ignore = [
   "SLF001",
   "TRY003",
 ]
-"scripts/**" = ["EM101", "S106", "T201", "TRY003"]
+"scripts/**" = ["EM101", "S106", "S603", "T201", "TRY003"]
 
 [[tool.mypy.overrides]]
 module = "alembic.*"

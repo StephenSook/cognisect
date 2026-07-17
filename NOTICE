@@ -4,5 +4,6 @@ Copyright 2026 COGNISECT contributors
 This product includes software developed by the COGNISECT contributors.
 Original project code is licensed under Apache License 2.0. Educational records,
 benchmark data, reference captures, and third-party works are not relicensed by
-the project license. The original `cognisect-ea-001` educator exemplar is separately
-licensed under CC BY 4.0 as documented in `docs/data/educator-exemplars.md`.
+the project license. The six `cognisect-ea-*` educator-authored fixtures are
+separately licensed under CC BY 4.0 as documented in
+`docs/data/educator-exemplars.md`.

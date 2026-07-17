@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: cognisect-api
+    runtime: docker
+    plan: starter
+    region: ohio
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    preDeployCommand: ./scripts/migrate.sh
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cognisect-postgres
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OWNER_SECRET_PEPPER
+        generateValue: true
+      - key: LEARNER_TOKEN_PEPPER
+        generateValue: true
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: RETENTION_DAYS
+        value: "30"
+      - key: MAX_MODEL_CALLS_PER_CASE
+        value: "3"
+      - key: MAX_MODEL_COST_USD
+        value: "1.00"
+      - key: MODEL_TIMEOUT_SECONDS
+        value: "30"
+      - key: MODEL_LUNA
+        value: gpt-5.6-luna
+      - key: MODEL_TERRA
+        value: gpt-5.6-terra
+      - key: MODEL_SOL
+        value: gpt-5.6-sol
+      - key: LANGGRAPH_STRICT_MSGPACK
+        value: "true"
+
+databases:
+  - name: cognisect-postgres
+    plan: basic-256mb
+    region: ohio
+    databaseName: cognisect
+    user: cognisect
+    ipAllowList: []

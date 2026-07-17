@@ -1,6 +1,8 @@
 # Third-party notices
 
-Runtime and development dependencies retain their own licenses. The generated dependency-license manifest is the release source of truth and is checked in CI.
+Runtime and development dependencies retain their own licenses. The generated
+dependency-license inventory is checked against exact requirements and lockfiles
+in CI; package license files remain authoritative.
 
 The application self-hosts these fonts through pinned Fontsource packages. Each font remains licensed under the SIL Open Font License 1.1; complete license text ships in its installed package:
 

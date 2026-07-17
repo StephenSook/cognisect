@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import type { components } from "@/lib/api/schema";
 import { createBrowserApiClient } from "@/lib/api/browser-client";
 import { mutationKey } from "@/lib/idempotency";
-import { DEFAULT_PUBLIC_EDUCATOR_CASE } from "@/lib/public-cases";
+import {
+  DEFAULT_PUBLIC_EDUCATOR_CASE,
+  PUBLIC_EDUCATOR_CASES,
+} from "@/lib/public-cases";
 import { strictInteger } from "@/lib/validation";
 
 type CaseRequest = components["schemas"]["CreateCaseRequest"];
@@ -23,6 +26,9 @@ const SOURCE_OPTIONS: { value: SourceMode; label: string }[] = [
 export function LabForm() {
   const router = useRouter();
   const [sourceMode, setSourceMode] = useState<SourceMode>("educator_authored");
+  const [publicCaseId, setPublicCaseId] = useState(
+    DEFAULT_PUBLIC_EDUCATOR_CASE.record_id,
+  );
   const [first, setFirst] = useState("");
   const [second, setSecond] = useState("");
   const [observedWork, setObservedWork] = useState("");
@@ -42,6 +48,7 @@ export function LabForm() {
     setAttested(false);
     setFieldErrors({});
     if (next === "public_exemplar") {
+      setPublicCaseId(DEFAULT_PUBLIC_EDUCATOR_CASE.record_id);
       setFirst(String(DEFAULT_PUBLIC_EDUCATOR_CASE.content.problem.a));
       setSecond(String(DEFAULT_PUBLIC_EDUCATOR_CASE.content.problem.b));
       setObservedWork(DEFAULT_PUBLIC_EDUCATOR_CASE.content.observed_work);
@@ -50,6 +57,17 @@ export function LabForm() {
       setSecond("");
       setObservedWork("");
     }
+  }
+
+  function selectPublicCase(recordId: string) {
+    const selected = PUBLIC_EDUCATOR_CASES.find(
+      (record) => record.record_id === recordId,
+    );
+    if (selected === undefined) return;
+    setPublicCaseId(selected.record_id);
+    setFirst(String(selected.content.problem.a));
+    setSecond(String(selected.content.problem.b));
+    setObservedWork(selected.content.observed_work);
   }
 
   function prepareRequest(): CaseRequest | null {
@@ -160,10 +178,26 @@ export function LabForm() {
         ))}
       </select>
       {sourceMode === "public_exemplar" ? (
-        <p className="field-note">
-          Educator-authored public exemplar {DEFAULT_PUBLIC_EDUCATOR_CASE.record_id}. It is not
-          learner work or a published student record.
-        </p>
+        <>
+          <label htmlFor="public-case">Public case</label>
+          <select
+            id="public-case"
+            name="public_case"
+            value={publicCaseId}
+            disabled={fieldsLocked}
+            onChange={(event) => selectPublicCase(event.target.value)}
+          >
+            {PUBLIC_EDUCATOR_CASES.map((record) => (
+              <option key={record.record_id} value={record.record_id}>
+                {record.record_id}: {record.content.problem.a} − {record.content.problem.b}
+              </option>
+            ))}
+          </select>
+          <p className="field-note">
+            Educator-authored public exemplar {publicCaseId}. It is not learner work or a
+            published student record.
+          </p>
+        </>
       ) : null}
 
       <fieldset className="operand-fields">

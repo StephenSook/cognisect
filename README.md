@@ -2,7 +2,16 @@
 
 COGNISECT is a teacher-controlled formative-assessment workbench for bounded
 signed-integer subtraction. The backend combines a closed deterministic rule
-registry and counterexample compiler with a Postgres-only durable workflow.
+registry and counterexample compiler with a Postgres-only durable workflow. A
+model may rank constrained hypotheses; it cannot author executable rules or
+decide authorization, probe release, evidence status, or teacher approval.
+
+## Current evidence status
+
+The repository is a locally verified release candidate. Public production,
+live-model benchmark, learner-response, educator-review, and learning-effect
+claims remain disabled. Six checked-in cases are clearly labeled original
+educator-authored fixtures and validate only the deterministic public harness.
 
 ## Local backend
 
@@ -29,6 +38,29 @@ Apply the schema and run the API:
 
 The application factory deliberately has no built-in analyzer fake. Tests inject
 their fake explicitly; a production analyzer must be supplied at construction.
+
+## Local frontend
+
+Install the exact Node 22 dependencies and start the App Router application:
+
+```sh
+cd frontend
+npm ci
+COGNISECT_BACKEND_URL=http://127.0.0.1:8000 npm run dev
+```
+
+Open `http://localhost:3000`. Browser calls use the same-origin backend proxy;
+learner links should always be tested in a separate browser context.
+
+## Deterministic public evaluation
+
+```sh
+uv run python scripts/validate_provenance.py
+uv run python scripts/run_offline_evaluation.py
+```
+
+This six-fixture run makes zero model calls and collects zero learner responses.
+It is not an accuracy benchmark.
 
 ## Capability threat model
 
@@ -65,3 +97,19 @@ git diff --check
 
 Regenerating `openapi/openapi.json` is an intentional contract change and must
 be reviewed with the API implementation and drift test.
+
+The browser gate is Playwright on desktop and mobile and includes the full
+teacher → isolated learner → teacher report loop, keyboard-only navigation,
+reduced motion, 200%-equivalent reflow, axe scans, slow/offline requests, expired
+and duplicate learner submissions, and abstention.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Rule registry](docs/specs/rule-registry-v1.md) and [state machine](docs/specs/state-machine.md)
+- [Dataset card](docs/DATASET_CARD.md) and [evaluation protocol](docs/EVALUATION.md)
+- [Security and privacy](docs/SECURITY.md)
+- [Deployment runbook](docs/DEPLOYMENT.md)
+- [Educator review protocol](docs/EDUCATOR_REVIEW.md)
+- [Build log](docs/BUILD_LOG.md) and [submission fact sheet](docs/FACT_SHEET.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md) and [dependency licenses](docs/DEPENDENCY_LICENSES.md)

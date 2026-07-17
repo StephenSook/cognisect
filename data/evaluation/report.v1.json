@@ -1,0 +1,88 @@
+{
+  "claim_scope": "Public educator-authored fixtures validate only schema, registry, compiler, and reproduction behavior. They provide no model-accuracy, learner, classroom, or learning-gain evidence.",
+  "evaluation_kind": "deterministic_fixture_harness",
+  "item_results": [
+    {
+      "chosen_problem": {
+        "a": -1,
+        "b": 0
+      },
+      "distinct_predictions": 2,
+      "manifest_id": "eval-ea-001",
+      "probe_specification_hash": "8c10d5fbcedb6073a2b8f3af8c01f4e2cac9288a59952b272f9a6de6b2b6e680",
+      "status": "compiled",
+      "tier": "educator_authored"
+    },
+    {
+      "chosen_problem": {
+        "a": -2,
+        "b": 1
+      },
+      "distinct_predictions": 3,
+      "manifest_id": "eval-ea-002",
+      "probe_specification_hash": "8cb098d2974c9d97f4071fff25028e4472f56d53230f3d984f0c8d3f274a6ea8",
+      "status": "compiled",
+      "tier": "educator_authored"
+    },
+    {
+      "chosen_problem": {
+        "a": 0,
+        "b": 1
+      },
+      "distinct_predictions": 2,
+      "manifest_id": "eval-ea-003",
+      "probe_specification_hash": "e2282c7706a5c81ad9a507495b0f442fb9f29e0b14449229945780b4b5348433",
+      "status": "compiled",
+      "tier": "educator_authored"
+    },
+    {
+      "chosen_problem": {
+        "a": 0,
+        "b": -1
+      },
+      "distinct_predictions": 2,
+      "manifest_id": "eval-ea-004",
+      "probe_specification_hash": "8ef6afcb29f8b503fb30d97d9ae3cfd52fa30c5a0b8d0520e85c8955b3927370",
+      "status": "compiled",
+      "tier": "educator_authored"
+    },
+    {
+      "chosen_problem": {
+        "a": -1,
+        "b": 0
+      },
+      "distinct_predictions": 2,
+      "manifest_id": "eval-ea-005",
+      "probe_specification_hash": "a67e5c7675e5897f7947286a5347345cf753bd11fdda1cbf0038e37391cfad11",
+      "status": "compiled",
+      "tier": "educator_authored"
+    },
+    {
+      "chosen_problem": {
+        "a": -1,
+        "b": 0
+      },
+      "distinct_predictions": 2,
+      "manifest_id": "eval-ea-006",
+      "probe_specification_hash": "1b19fee4b863220daba4d3e6a09014bd5d70efa99895daa7f617112e9c9bdb3f",
+      "status": "compiled",
+      "tier": "educator_authored"
+    }
+  ],
+  "learner_responses_collected": 0,
+  "manifest_frozen_at": "2026-07-17T02:45:00Z",
+  "manifest_schema_version": "cognisect.evaluation-manifest.v1",
+  "metrics": {
+    "abstention_rate": 0.0,
+    "deterministic_reproduction_rate": 1.0,
+    "registry_acceptance_rate": 1.0,
+    "separating_probe_rate": 1.0,
+    "unique_semantic_rule_rate": 1.0
+  },
+  "model_calls_made": 0,
+  "record_count": 6,
+  "schema_version": "cognisect.evaluation-report.v1",
+  "tiers": {
+    "educator_authored": 6
+  }
+}

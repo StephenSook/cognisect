@@ -1,0 +1,114 @@
+{
+  "schema_version": "cognisect.evaluation-manifest.v1",
+  "frozen_at": "2026-07-17T02:45:00Z",
+  "split_policy": "Grouped by question_id and source_ancestry; no response-row randomization.",
+  "claim_scope": "Public educator-authored fixtures validate only schema, registry, compiler, and reproduction behavior. They provide no model-accuracy, learner, classroom, or learning-gain evidence.",
+  "records": [
+    {
+      "manifest_id": "eval-ea-001",
+      "provenance_record_id": "cognisect-ea-001",
+      "question_id": "signed-subtraction-q001",
+      "source_ancestry": "cognisect-educator-set-v1/q001",
+      "split": "validation",
+      "tier": "educator_authored",
+      "runtime_input": {
+        "problem": {"a": -3, "b": 5},
+        "observed_work": "-3 - 5 = 2",
+        "source_tier": "educator_authored"
+      },
+      "evaluation_only": {
+        "expected_template_ids": ["add_subtrahend", "absolute_difference"],
+        "label_source": "COGNISECT project authors"
+      }
+    },
+    {
+      "manifest_id": "eval-ea-002",
+      "provenance_record_id": "cognisect-ea-002",
+      "question_id": "signed-subtraction-q002",
+      "source_ancestry": "cognisect-educator-set-v1/q002",
+      "split": "validation",
+      "tier": "educator_authored",
+      "runtime_input": {
+        "problem": {"a": 4, "b": -6},
+        "observed_work": "4 - (-6) = -2",
+        "source_tier": "educator_authored"
+      },
+      "evaluation_only": {
+        "expected_template_ids": [
+          "add_subtrahend",
+          "ignore_subtrahend_sign",
+          "subtract_magnitudes"
+        ],
+        "label_source": "COGNISECT project authors"
+      }
+    },
+    {
+      "manifest_id": "eval-ea-003",
+      "provenance_record_id": "cognisect-ea-003",
+      "question_id": "signed-subtraction-q003",
+      "source_ancestry": "cognisect-educator-set-v1/q003",
+      "split": "validation",
+      "tier": "educator_authored",
+      "runtime_input": {
+        "problem": {"a": -7, "b": -2},
+        "observed_work": "-7 - (-2) = -9",
+        "source_tier": "educator_authored"
+      },
+      "evaluation_only": {
+        "expected_template_ids": ["add_subtrahend", "negative_magnitude_sum"],
+        "label_source": "COGNISECT project authors"
+      }
+    },
+    {
+      "manifest_id": "eval-ea-004",
+      "provenance_record_id": "cognisect-ea-004",
+      "question_id": "signed-subtraction-q004",
+      "source_ancestry": "cognisect-educator-set-v1/q004",
+      "split": "validation",
+      "tier": "educator_authored",
+      "runtime_input": {
+        "problem": {"a": -8, "b": 3},
+        "observed_work": "-8 - 3 = -5",
+        "source_tier": "educator_authored"
+      },
+      "evaluation_only": {
+        "expected_template_ids": ["add_subtrahend", "keep_minuend_sign"],
+        "label_source": "COGNISECT project authors"
+      }
+    },
+    {
+      "manifest_id": "eval-ea-005",
+      "provenance_record_id": "cognisect-ea-005",
+      "question_id": "signed-subtraction-q005",
+      "source_ancestry": "cognisect-educator-set-v1/q005",
+      "split": "validation",
+      "tier": "educator_authored",
+      "runtime_input": {
+        "problem": {"a": 6, "b": 9},
+        "observed_work": "6 - 9 = 3",
+        "source_tier": "educator_authored"
+      },
+      "evaluation_only": {
+        "expected_template_ids": ["absolute_difference", "keep_minuend_sign"],
+        "label_source": "COGNISECT project authors"
+      }
+    },
+    {
+      "manifest_id": "eval-ea-006",
+      "provenance_record_id": "cognisect-ea-006",
+      "question_id": "signed-subtraction-q006",
+      "source_ancestry": "cognisect-educator-set-v1/q006",
+      "split": "validation",
+      "tier": "educator_authored",
+      "runtime_input": {
+        "problem": {"a": -4, "b": -9},
+        "observed_work": "-4 - (-9) = -5",
+        "source_tier": "educator_authored"
+      },
+      "evaluation_only": {
+        "expected_template_ids": ["subtract_magnitudes", "keep_minuend_sign"],
+        "label_source": "COGNISECT project authors"
+      }
+    }
+  ]
+}

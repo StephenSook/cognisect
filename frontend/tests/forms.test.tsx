@@ -46,10 +46,21 @@ describe("lab form", () => {
     ).toEqual(["public_exemplar", "educator_authored", "custom"]);
 
     await user.selectOptions(screen.getByLabelText("Case source"), "public_exemplar");
+    expect(screen.getByLabelText("Public case")).toHaveValue("cognisect-ea-001");
     expect(screen.getByLabelText("First integer")).toHaveValue("-3");
     expect(screen.getByLabelText("Second integer")).toHaveValue("5");
     expect(screen.getByLabelText("Observed work")).toHaveValue("-3 - 5 = 2");
-    expect(screen.getByText(/cognisect-ea-001/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Educator-authored public exemplar cognisect-ea-001/i),
+    ).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Public case"), "cognisect-ea-006");
+    expect(screen.getByLabelText("First integer")).toHaveValue("-4");
+    expect(screen.getByLabelText("Second integer")).toHaveValue("-9");
+    expect(screen.getByLabelText("Observed work")).toHaveValue("-4 - (-9) = -5");
+    expect(
+      screen.getByText(/Educator-authored public exemplar cognisect-ea-006/i),
+    ).toBeInTheDocument();
   });
 
   it("preserves a cryptographically random idempotency key for exact retry", async () => {

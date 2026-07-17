@@ -21,11 +21,128 @@
       "label_source": "COGNISECT project authors",
       "adjudication_status": "author-reviewed",
       "content": {
-        "problem": {
-          "a": -3,
-          "b": 5
-        },
+        "problem": {"a": -3, "b": 5},
         "observed_work": "-3 - 5 = 2"
+      }
+    },
+    {
+      "record_id": "cognisect-ea-002",
+      "source_url": null,
+      "source_path": "data/provenance/public-cases.v1.json",
+      "license": "CC-BY-4.0",
+      "version": "1",
+      "created_at": "2026-07-16",
+      "retrieved_at": null,
+      "content_sha256": "88764b940ec0e8e7c3a02466979b967576d19e56d5fb7aae92f6531357864203",
+      "tier": "educator_authored",
+      "authenticity": "educator-authored",
+      "transformation_history": [
+        "Created as a public COGNISECT evaluation fixture.",
+        "No learner record or third-party educational content was used."
+      ],
+      "redistribution_permitted": true,
+      "public_display_permitted": true,
+      "label_source": "COGNISECT project authors",
+      "adjudication_status": "author-reviewed",
+      "content": {
+        "problem": {"a": 4, "b": -6},
+        "observed_work": "4 - (-6) = -2"
+      }
+    },
+    {
+      "record_id": "cognisect-ea-003",
+      "source_url": null,
+      "source_path": "data/provenance/public-cases.v1.json",
+      "license": "CC-BY-4.0",
+      "version": "1",
+      "created_at": "2026-07-16",
+      "retrieved_at": null,
+      "content_sha256": "55cbf56a506ade1ae553ff5143428a9574f49357f0d161861fb320276791c9fb",
+      "tier": "educator_authored",
+      "authenticity": "educator-authored",
+      "transformation_history": [
+        "Created as a public COGNISECT evaluation fixture.",
+        "No learner record or third-party educational content was used."
+      ],
+      "redistribution_permitted": true,
+      "public_display_permitted": true,
+      "label_source": "COGNISECT project authors",
+      "adjudication_status": "author-reviewed",
+      "content": {
+        "problem": {"a": -7, "b": -2},
+        "observed_work": "-7 - (-2) = -9"
+      }
+    },
+    {
+      "record_id": "cognisect-ea-004",
+      "source_url": null,
+      "source_path": "data/provenance/public-cases.v1.json",
+      "license": "CC-BY-4.0",
+      "version": "1",
+      "created_at": "2026-07-16",
+      "retrieved_at": null,
+      "content_sha256": "02cf172ab4f042d89f976c2a813bda48f9f33fab1191cc8db0d012ad27803137",
+      "tier": "educator_authored",
+      "authenticity": "educator-authored",
+      "transformation_history": [
+        "Created as a public COGNISECT evaluation fixture.",
+        "No learner record or third-party educational content was used."
+      ],
+      "redistribution_permitted": true,
+      "public_display_permitted": true,
+      "label_source": "COGNISECT project authors",
+      "adjudication_status": "author-reviewed",
+      "content": {
+        "problem": {"a": -8, "b": 3},
+        "observed_work": "-8 - 3 = -5"
+      }
+    },
+    {
+      "record_id": "cognisect-ea-005",
+      "source_url": null,
+      "source_path": "data/provenance/public-cases.v1.json",
+      "license": "CC-BY-4.0",
+      "version": "1",
+      "created_at": "2026-07-16",
+      "retrieved_at": null,
+      "content_sha256": "61a11fd926e7adec62d7d21d3835630b7b7273c96618fc7cf6bca5c29f20c9ac",
+      "tier": "educator_authored",
+      "authenticity": "educator-authored",
+      "transformation_history": [
+        "Created as a public COGNISECT evaluation fixture.",
+        "No learner record or third-party educational content was used."
+      ],
+      "redistribution_permitted": true,
+      "public_display_permitted": true,
+      "label_source": "COGNISECT project authors",
+      "adjudication_status": "author-reviewed",
+      "content": {
+        "problem": {"a": 6, "b": 9},
+        "observed_work": "6 - 9 = 3"
+      }
+    },
+    {
+      "record_id": "cognisect-ea-006",
+      "source_url": null,
+      "source_path": "data/provenance/public-cases.v1.json",
+      "license": "CC-BY-4.0",
+      "version": "1",
+      "created_at": "2026-07-16",
+      "retrieved_at": null,
+      "content_sha256": "fbe623404120806a90240d505af46fd819b0d9ff2618ada9c429a2bf8ddb3333",
+      "tier": "educator_authored",
+      "authenticity": "educator-authored",
+      "transformation_history": [
+        "Created as a public COGNISECT evaluation fixture.",
+        "No learner record or third-party educational content was used."
+      ],
+      "redistribution_permitted": true,
+      "public_display_permitted": true,
+      "label_source": "COGNISECT project authors",
+      "adjudication_status": "author-reviewed",
+      "content": {
+        "problem": {"a": -4, "b": -9},
+        "observed_work": "-4 - (-9) = -5"
       }
     }
   ]

@@ -11,6 +11,62 @@ import httpx
 import pytest
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            "postgres://owner:secret@db/cognisect",
+            "postgresql+psycopg://owner:secret@db/cognisect",
+        ),
+        (
+            "postgresql://owner:secret@db/cognisect",
+            "postgresql+psycopg://owner:secret@db/cognisect",
+        ),
+        (
+            "postgresql+psycopg://owner:secret@db/cognisect",
+            "postgresql+psycopg://owner:secret@db/cognisect",
+        ),
+    ],
+)
+def test_render_database_urls_are_normalized_without_printing_in_launcher(
+    raw: str,
+    expected: str,
+) -> None:
+    repository = Path(__file__).resolve().parents[2]
+    normalizer = repository / "scripts" / "database_url.sh"
+    command = (
+        f'. "{normalizer}"; DATABASE_URL="$1"; normalize_database_url; '
+        'printf "%s" "$DATABASE_URL"'
+    )
+
+    completed = subprocess.run(  # noqa: S603
+        ["/bin/sh", "-c", command, "normalize-database-url", raw],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout == expected
+    assert completed.stderr == ""
+
+
+def test_database_url_normalizer_rejects_non_postgres_schemes() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    normalizer = repository / "scripts" / "database_url.sh"
+    command = f'. "{normalizer}"; DATABASE_URL="$1"; normalize_database_url'
+
+    completed = subprocess.run(  # noqa: S603
+        ["/bin/sh", "-c", command, "normalize-database-url", "mysql://db/cognisect"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    assert completed.stderr == ""
+
+
 def test_launcher_never_access_logs_raw_learner_request_targets(unused_tcp_port: int):
     repository = Path(__file__).resolve().parents[2]
     launcher = repository / "scripts" / "run-backend.sh"
