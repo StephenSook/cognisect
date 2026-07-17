@@ -171,6 +171,31 @@ async def test_analysis_persists_probe_and_predictions_before_any_token(
     assert prediction_count == 2
     assert token_count == 0
 
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.compiled_probe is not None
+    assert dto.compiled_probe.proof.domain_problem_count == 625
+    assert dto.compiled_probe.proof.eligible_candidate_count == 624
+    assert dto.compiled_probe.proof.chosen_candidate_rank == 1
+    assert dto.compiled_probe.proof.top_candidates[0].problem == dto.compiled_probe.problem
+    assert dto.compiled_probe.proof.top_candidates[0].predictions == [
+        prediction.prediction for prediction in dto.compiled_probe.predictions
+    ]
+
+
+@pytest.mark.postgres
+async def test_teacher_dto_fails_closed_when_persisted_probe_predictions_do_not_reproduce(
+    service, db_engine, case_request
+):
+    created, _workflow = await prepare_probe(service, case_request)
+    factory = create_session_factory(db_engine)
+    async with factory() as session, session.begin():
+        prediction = await session.scalar(select(ProbePredictionRecord))
+        assert prediction is not None
+        prediction.prediction += 1
+
+    with pytest.raises(ReplayConflictError, match="persisted compiler proof"):
+        await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+
 
 @pytest.mark.postgres
 async def test_terra_note_is_persisted_before_response_then_only_evidence_is_attached(

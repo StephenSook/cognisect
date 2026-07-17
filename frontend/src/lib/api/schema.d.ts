@@ -248,10 +248,57 @@ export interface components {
             /** Predictions */
             predictions: components["schemas"]["ProbePredictionResponse"][];
             problem: components["schemas"]["SignedProblemDTO"];
+            proof: components["schemas"]["CompilerSearchProof"];
             /** Registry Version */
             registry_version: string;
             /** Specification Hash */
             specification_hash: string;
+        };
+        /**
+         * CompilerCandidateProof
+         * @description One ranked separating candidate exposed to the authorized teacher.
+         */
+        CompilerCandidateProof: {
+            /** Correct Result Magnitude */
+            correct_result_magnitude: number;
+            /** Distinct Output Count */
+            distinct_output_count: number;
+            /** Distinguished Pair Count */
+            distinguished_pair_count: number;
+            /** Operand Magnitude */
+            operand_magnitude: number;
+            /** Predictions */
+            predictions: number[];
+            problem: components["schemas"]["SignedProblemDTO"];
+            /** Rank */
+            rank: number;
+            /** Top Two Separated */
+            top_two_separated: boolean;
+        };
+        /**
+         * CompilerSearchProof
+         * @description Complete bounded-domain counts and up to five deterministic finalists.
+         */
+        CompilerSearchProof: {
+            /**
+             * Chosen Candidate Rank
+             * @constant
+             */
+            chosen_candidate_rank: 1;
+            /**
+             * Domain Problem Count
+             * @constant
+             */
+            domain_problem_count: 625;
+            /**
+             * Eligible Candidate Count
+             * @constant
+             */
+            eligible_candidate_count: 624;
+            /** Separating Candidate Count */
+            separating_candidate_count: number;
+            /** Top Candidates */
+            top_candidates: components["schemas"]["CompilerCandidateProof"][];
         };
         /**
          * CreateCaseRequest

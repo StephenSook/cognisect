@@ -159,6 +159,29 @@ class ProbePredictionResponse(StrictContractModel):
     prediction: int
 
 
+class CompilerCandidateProof(StrictContractModel):
+    """One ranked separating candidate exposed to the authorized teacher."""
+
+    problem: SignedProblemDTO
+    predictions: Annotated[list[int], Field(min_length=2)]
+    distinct_output_count: Annotated[int, Field(strict=True, ge=2)]
+    top_two_separated: bool
+    distinguished_pair_count: Annotated[int, Field(strict=True, ge=1)]
+    operand_magnitude: Annotated[int, Field(strict=True, ge=0, le=24)]
+    correct_result_magnitude: Annotated[int, Field(strict=True, ge=0, le=24)]
+    rank: Annotated[int, Field(strict=True, ge=1, le=5)]
+
+
+class CompilerSearchProof(StrictContractModel):
+    """Complete bounded-domain counts and up to five deterministic finalists."""
+
+    domain_problem_count: Literal[625]
+    eligible_candidate_count: Literal[624]
+    separating_candidate_count: Annotated[int, Field(strict=True, ge=1, le=624)]
+    chosen_candidate_rank: Literal[1]
+    top_candidates: Annotated[list[CompilerCandidateProof], Field(min_length=1, max_length=5)]
+
+
 class CompiledProbeResponse(StrictContractModel):
     """The persisted deterministic probe specification shown only to teachers."""
 
@@ -169,6 +192,7 @@ class CompiledProbeResponse(StrictContractModel):
     registry_version: str
     compiler_version: str
     predictions: list[ProbePredictionResponse]
+    proof: CompilerSearchProof
 
 
 class EvidenceStatusResponse(StrictContractModel):

@@ -165,6 +165,9 @@
           "problem": {
             "$ref": "#/components/schemas/SignedProblemDTO"
           },
+          "proof": {
+            "$ref": "#/components/schemas/CompilerSearchProof"
+          },
           "registry_version": {
             "title": "Registry Version",
             "type": "string"
@@ -181,9 +184,116 @@
           "specification_hash",
           "registry_version",
           "compiler_version",
-          "predictions"
+          "predictions",
+          "proof"
         ],
         "title": "CompiledProbeResponse",
+        "type": "object"
+      },
+      "CompilerCandidateProof": {
+        "additionalProperties": false,
+        "description": "One ranked separating candidate exposed to the authorized teacher.",
+        "properties": {
+          "correct_result_magnitude": {
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Correct Result Magnitude",
+            "type": "integer"
+          },
+          "distinct_output_count": {
+            "minimum": 2.0,
+            "title": "Distinct Output Count",
+            "type": "integer"
+          },
+          "distinguished_pair_count": {
+            "minimum": 1.0,
+            "title": "Distinguished Pair Count",
+            "type": "integer"
+          },
+          "operand_magnitude": {
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Operand Magnitude",
+            "type": "integer"
+          },
+          "predictions": {
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "title": "Predictions",
+            "type": "array"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "rank": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "top_two_separated": {
+            "title": "Top Two Separated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "problem",
+          "predictions",
+          "distinct_output_count",
+          "top_two_separated",
+          "distinguished_pair_count",
+          "operand_magnitude",
+          "correct_result_magnitude",
+          "rank"
+        ],
+        "title": "CompilerCandidateProof",
+        "type": "object"
+      },
+      "CompilerSearchProof": {
+        "additionalProperties": false,
+        "description": "Complete bounded-domain counts and up to five deterministic finalists.",
+        "properties": {
+          "chosen_candidate_rank": {
+            "const": 1,
+            "title": "Chosen Candidate Rank",
+            "type": "integer"
+          },
+          "domain_problem_count": {
+            "const": 625,
+            "title": "Domain Problem Count",
+            "type": "integer"
+          },
+          "eligible_candidate_count": {
+            "const": 624,
+            "title": "Eligible Candidate Count",
+            "type": "integer"
+          },
+          "separating_candidate_count": {
+            "maximum": 624.0,
+            "minimum": 1.0,
+            "title": "Separating Candidate Count",
+            "type": "integer"
+          },
+          "top_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CompilerCandidateProof"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Top Candidates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "domain_problem_count",
+          "eligible_candidate_count",
+          "separating_candidate_count",
+          "chosen_candidate_rank",
+          "top_candidates"
+        ],
+        "title": "CompilerSearchProof",
         "type": "object"
       },
       "CreateCaseRequest": {

@@ -89,6 +89,34 @@ def _independent_best_probe(
     return min(ranked)[1]
 
 
+def _independent_separating_candidates(
+    template_ids: tuple[TemplateId, ...], original: tuple[int, int]
+) -> list[tuple[tuple[int, int, int, int, int, int, int], tuple[int, int], tuple[int, ...]]]:
+    oracle_ids = tuple(cast("OracleTemplateId", item) for item in template_ids)
+    ranked = []
+    for a in DOMAIN_VALUES:
+        for b in DOMAIN_VALUES:
+            if (a, b) == original:
+                continue
+            predictions = tuple(oracle_result(item, a, b) for item in oracle_ids)
+            if len(set(predictions)) < 2:
+                continue
+            distinguished_pairs = sum(
+                left != right for left, right in itertools.combinations(predictions, 2)
+            )
+            rank_key = (
+                -len(set(predictions)),
+                -int(predictions[0] != predictions[1]),
+                -distinguished_pairs,
+                abs(a) + abs(b),
+                abs(a - b),
+                a,
+                b,
+            )
+            ranked.append((rank_key, (a, b), predictions))
+    return sorted(ranked)
+
+
 def _ranking_fixture(
     predictions_by_problem: dict[tuple[int, int], tuple[int, int, int, int]],
 ) -> tuple[AcceptedHypothesis, ...]:
@@ -232,6 +260,39 @@ def test_compiled_probe_contains_complete_versioned_specification() -> None:
     assert all(type(item.prediction) is int for item in result.hypotheses)
     assert len(result.specification_hash) == 64
     assert reproduce_probe_hash(result) == result.specification_hash
+
+
+def test_compiler_exposes_complete_proof_from_the_selection_ranking_pass() -> None:
+    template_ids: tuple[TemplateId, ...] = (
+        "ignore_subtrahend_sign",
+        "add_subtrahend",
+        "absolute_difference",
+        "negative_magnitude_sum",
+    )
+    original = (-1, 1)
+    independent = _independent_separating_candidates(template_ids, original)
+
+    result = compile_probe(_mapping(template_ids), *original)
+
+    assert isinstance(result, CompiledProbe)
+    assert result.proof.domain_problem_count == 625
+    assert result.proof.eligible_candidate_count == 624
+    assert result.proof.separating_candidate_count == len(independent)
+    assert result.proof.chosen_candidate_rank == 1
+    assert 1 <= len(result.proof.top_candidates) <= 5
+    assert [candidate.rank for candidate in result.proof.top_candidates] == list(
+        range(1, len(result.proof.top_candidates) + 1)
+    )
+    chosen = result.proof.top_candidates[0]
+    assert chosen.problem == result.chosen_problem
+    assert chosen.predictions == tuple(item.prediction for item in result.hypotheses)
+    assert chosen.distinct_output_count == len(set(chosen.predictions))
+    assert chosen.top_two_separated is (chosen.predictions[0] != chosen.predictions[1])
+    assert chosen.distinguished_pair_count == sum(
+        left != right for left, right in itertools.combinations(chosen.predictions, 2)
+    )
+    assert chosen.operand_magnitude == abs(chosen.problem.a) + abs(chosen.problem.b)
+    assert chosen.correct_result_magnitude == abs(chosen.problem.a - chosen.problem.b)
 
 
 @given(

@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from cognisect.api_models import (
+    CompiledProbeResponse,
     CreateCaseRequest,
     LearnerProbeResponse,
     ReviewRequest,
@@ -178,6 +179,46 @@ def test_learner_schema_never_includes_teacher_workflow_fields() -> None:
         "source_tier",
     ):
         assert teacher_field not in schema_text
+
+
+def test_compiled_probe_contract_requires_strict_deterministic_proof() -> None:
+    payload = {
+        "original_problem": {"a": -3, "b": 5},
+        "problem": {"a": 0, "b": -1},
+        "correct_prediction": 1,
+        "specification_hash": "a" * 64,
+        "registry_version": "rule_registry.v1",
+        "compiler_version": "counterexample_compiler.v1",
+        "predictions": [
+            {"template_id": "add_subtrahend", "rank": 1, "prediction": -1},
+            {"template_id": "absolute_difference", "rank": 2, "prediction": 1},
+        ],
+        "proof": {
+            "domain_problem_count": 625,
+            "eligible_candidate_count": 624,
+            "separating_candidate_count": 120,
+            "chosen_candidate_rank": 1,
+            "top_candidates": [
+                {
+                    "problem": {"a": 0, "b": -1},
+                    "predictions": [-1, 1],
+                    "distinct_output_count": 2,
+                    "top_two_separated": True,
+                    "distinguished_pair_count": 1,
+                    "operand_magnitude": 1,
+                    "correct_result_magnitude": 1,
+                    "rank": 1,
+                }
+            ],
+        },
+    }
+
+    dto = CompiledProbeResponse.model_validate(payload)
+
+    assert dto.proof.top_candidates[0].predictions == [-1, 1]
+    invalid = {**payload, "proof": {**payload["proof"], "domain_problem_count": "625"}}
+    with pytest.raises(ValidationError):
+        CompiledProbeResponse.model_validate(invalid)
 
 
 def test_generated_secrets_are_high_entropy_and_hashes_are_purpose_separated():

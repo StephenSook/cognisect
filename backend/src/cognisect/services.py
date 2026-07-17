@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import delete, exists, func, select
@@ -18,6 +18,8 @@ from cognisect.api_models import (
     AcceptedHypothesisResponse,
     AnswerConstraints,
     CompiledProbeResponse,
+    CompilerCandidateProof,
+    CompilerSearchProof,
     CreateCaseRequest,
     EvidenceStatusResponse,
     LearnerProbeResponse,
@@ -31,7 +33,16 @@ from cognisect.api_models import (
     SourceTier,
     WorkflowResponse,
 )
-from cognisect.compiler import CompiledProbe, CompilerAbstention, ProbeHypothesis, SignedProblem
+from cognisect.compiler import (
+    CompiledProbe,
+    CompilerAbstention,
+    ProbeHypothesis,
+    SignedProblem,
+    compile_accepted_probe,
+)
+from cognisect.compiler import (
+    CompilerSearchProof as CompilerSearchProofData,
+)
 from cognisect.config import Settings
 from cognisect.db_models import (
     AcceptedHypothesisRecord,
@@ -53,7 +64,12 @@ from cognisect.db_models import (
     utc_now,
 )
 from cognisect.evidence import LearnerResponseV1, update_evidence
-from cognisect.interpreter import accept_hypotheses
+from cognisect.interpreter import (
+    AcceptedHypothesis,
+    accept_hypotheses,
+    canonical_truth_table_hash,
+    truth_table_for_template,
+)
 from cognisect.models import RuleMappingV1
 from cognisect.repositories import (
     OwnedResourceNotFoundError,
@@ -69,6 +85,9 @@ from cognisect.security import (
     secrets_match,
 )
 from cognisect.workflow import WorkflowState
+
+if TYPE_CHECKING:
+    from cognisect.models import TemplateId
 
 Clock = Callable[[], datetime]
 
@@ -241,6 +260,90 @@ def _now_utc(clock: Clock) -> datetime:
         msg = "clock must return an aware datetime"
         raise ValueError(msg)
     return value.astimezone(UTC)
+
+
+def _reconstruct_accepted_hypotheses(
+    records: list[AcceptedHypothesisRecord],
+) -> tuple[AcceptedHypothesis, ...]:
+    """Rebuild canonical interpreter inputs from the persisted accepted records."""
+    reconstructed = []
+    try:
+        for record in records:
+            template_id = cast("TemplateId", record.template_id)
+            truth_table = truth_table_for_template(template_id)
+            if canonical_truth_table_hash(truth_table) != record.truth_table_hash:
+                msg = "persisted compiler proof does not reproduce accepted hypotheses"
+                raise ReplayConflictError(msg)
+            reconstructed.append(
+                AcceptedHypothesis(
+                    template_id=template_id,
+                    evidence_refs=tuple(record.evidence_refs),
+                    description=record.description,
+                    rank=record.rank,
+                    truth_table_hash=record.truth_table_hash,
+                    truth_table=truth_table,
+                )
+            )
+    except ValueError as error:
+        msg = "persisted compiler proof does not reproduce accepted hypotheses"
+        raise ReplayConflictError(msg) from error
+    return tuple(reconstructed)
+
+
+def _derive_persisted_proof(
+    probe: CompiledProbeRecord,
+    hypotheses: list[AcceptedHypothesisRecord],
+    predictions: list[ProbePredictionRecord],
+) -> CompilerSearchProofData:
+    """Re-run the compiler and reject any persisted selection/prediction drift."""
+    result = compile_accepted_probe(
+        _reconstruct_accepted_hypotheses(hypotheses),
+        probe.original_a,
+        probe.original_b,
+    )
+    persisted_predictions = tuple(prediction.prediction for prediction in predictions)
+    persisted_prediction_specs = tuple(
+        (prediction.template_id, prediction.rank, prediction.prediction)
+        for prediction in predictions
+    )
+    reproduced_prediction_specs = (
+        tuple((item.template_id, item.rank, item.prediction) for item in result.hypotheses)
+        if isinstance(result, CompiledProbe)
+        else ()
+    )
+    if (
+        not isinstance(result, CompiledProbe)
+        or result.proof is None
+        or result.chosen_problem != SignedProblem(a=probe.chosen_a, b=probe.chosen_b)
+        or reproduced_prediction_specs != persisted_prediction_specs
+        or result.proof.top_candidates[0].predictions != persisted_predictions
+    ):
+        msg = "persisted compiler proof does not reproduce probe selection and predictions"
+        raise ReplayConflictError(msg)
+    return result.proof
+
+
+def _proof_response(proof: CompilerSearchProofData) -> CompilerSearchProof:
+    """Translate immutable compiler proof values into the strict public DTO."""
+    return CompilerSearchProof(
+        domain_problem_count=cast("Literal[625]", proof.domain_problem_count),
+        eligible_candidate_count=cast("Literal[624]", proof.eligible_candidate_count),
+        separating_candidate_count=proof.separating_candidate_count,
+        chosen_candidate_rank=cast("Literal[1]", proof.chosen_candidate_rank),
+        top_candidates=[
+            CompilerCandidateProof(
+                problem=SignedProblemDTO(a=candidate.problem.a, b=candidate.problem.b),
+                predictions=list(candidate.predictions),
+                distinct_output_count=candidate.distinct_output_count,
+                top_two_separated=candidate.top_two_separated,
+                distinguished_pair_count=candidate.distinguished_pair_count,
+                operand_magnitude=candidate.operand_magnitude,
+                correct_result_magnitude=candidate.correct_result_magnitude,
+                rank=candidate.rank,
+            )
+            for candidate in proof.top_candidates
+        ],
+    )
 
 
 class WorkflowService:
@@ -535,8 +638,6 @@ class WorkflowService:
                 if analyzer_result.mapping is None:
                     msg = "analyzer returned neither a mapping nor an abstention"
                     raise ValueError(msg)  # noqa: TRY301
-                from cognisect.compiler import compile_accepted_probe  # noqa: PLC0415
-
                 compiler_result = compile_accepted_probe(
                     accepted, analysis_input.original_a, analysis_input.original_b
                 )
@@ -1009,6 +1110,9 @@ class WorkflowService:
             )
             for hypothesis, prediction in rows
         )
+        hypothesis_records = [hypothesis for hypothesis, _prediction in rows]
+        prediction_records = [prediction for _hypothesis, prediction in rows]
+        proof = _derive_persisted_proof(probe, hypothesis_records, prediction_records)
         return CompiledProbe(
             registry_version=probe.registry_version,
             compiler_version=probe.compiler_version,
@@ -1017,6 +1121,7 @@ class WorkflowService:
             correct_prediction=probe.correct_prediction,
             hypotheses=hypotheses,
             specification_hash=probe.specification_hash,
+            proof=proof,
         )
 
     async def advance_response_update(self, workflow_id: UUID) -> None:
@@ -1294,6 +1399,11 @@ class WorkflowService:
                 if probe is not None
                 else []
             )
+            proof = (
+                _derive_persisted_proof(probe, hypotheses, predictions)
+                if probe is not None
+                else None
+            )
             proposal = await session.scalar(
                 select(GeneratedProposalRecord).where(
                     GeneratedProposalRecord.workflow_id == workflow_id
@@ -1376,8 +1486,9 @@ class WorkflowService:
                             )
                             for prediction in predictions
                         ],
+                        proof=_proof_response(proof),
                     )
-                    if probe is not None
+                    if probe is not None and proof is not None
                     else None
                 ),
                 deterministic_evidence=[
