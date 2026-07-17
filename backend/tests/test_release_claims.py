@@ -33,30 +33,43 @@ UNSUPPORTED_POSITIVE_CLAIM_PATTERNS = (
     r"\b(?:high|medium|low)\s+confidence\b",
     r"\bconfidence score\b",
 )
-NEGATION_PATTERN = re.compile(r"\b(?:no|not|never|without)\b")
-CLAUSE_BOUNDARY_PATTERN = re.compile(r"[.!?;\n]|\b(?:but|however|yet)\b")
+ALLOWLISTED_NEGATIVE_CLAIM_PATTERNS = (
+    r"\beducator validation (?:has|had) not occurred\b",
+    r"\bno educator validation (?:has |had )?occurred\b",
+    r"\bnot evidence of educator validation\b",
+    r"\bno (?:external )?educator(?: usability)? review (?:has |had )?occurred\b",
+    r"\b(?:external )?educator(?: usability)? review (?:has|had) not occurred\b",
+    r"\b(?:was|were|is|are|has|have|had) not "
+    r"(?:used|deployed|adopted|piloted) in \d+ classrooms?\b",
+    r"\b(?:does|do|did) not (?:use|deploy|adopt|pilot) "
+    r"(?:the tool )?in \d+ classrooms?\b",
+    r"\b(?:does|do|did) not save (?:teachers?|educators?|instructors?) "
+    r"\d+(?:\.\d+)? (?:minutes?|hours?)\b",
+    r"\b(?:does|do|did) not (?:raise|improve|increase|boost) "
+    r"(?:learner|student) scores?\b",
+    r"\b(?:does|do|did) not diagnose misconceptions?\b",
+    r"\b(?:was|were|is|are) not educator[- ]validated\b",
+    r"\b(?:not (?:a )?|no )confidence score\b",
+)
 
 
 def _json(relative_path: str) -> dict[str, Any]:
     return json.loads((ROOT / relative_path).read_text(encoding="utf-8"))
 
 
-def _has_nearby_negation(text: str, claim_start: int) -> bool:
-    prefix = text[:claim_start]
-    boundaries = tuple(CLAUSE_BOUNDARY_PATTERN.finditer(prefix))
-    if boundaries:
-        prefix = prefix[boundaries[-1].end() :]
-    nearby_words = re.findall(r"\b[\w'-]+\b", prefix)[-8:]
-    return NEGATION_PATTERN.search(" ".join(nearby_words)) is not None
+def _without_allowlisted_negative_claims(public_copy: str) -> str:
+    sanitized = " ".join(public_copy.lower().split())
+    for pattern in ALLOWLISTED_NEGATIVE_CLAIM_PATTERNS:
+        sanitized = re.sub(pattern, " ", sanitized)
+    return sanitized
 
 
 def _assert_no_unsupported_positive_claims(public_copy: str) -> None:
-    lowered = public_copy.lower()
+    sanitized = _without_allowlisted_negative_claims(public_copy)
     unsupported = [
         match.group(0)
         for pattern in UNSUPPORTED_POSITIVE_CLAIM_PATTERNS
-        for match in re.finditer(pattern, lowered)
-        if not _has_nearby_negation(lowered, match.start())
+        for match in re.finditer(pattern, sanitized)
     ]
     assert not unsupported, f"unsupported positive public claims: {unsupported}"
 
@@ -76,6 +89,8 @@ def _assert_no_unsupported_positive_claims(public_copy: str) -> None:
         "95% confidence.",
         "High confidence.",
         "This is a confidence score.",
+        "The tool does not guess and diagnoses misconceptions.",
+        "COGNISECT is not experimental and is educator-validated.",
     ],
 )
 def test_positive_claim_guard_rejects_unsupported_variants(claim: str) -> None:
@@ -95,6 +110,7 @@ def test_positive_claim_guard_rejects_unsupported_variants(claim: str) -> None:
         "The tool does not diagnose misconceptions.",
         "No educator validation occurred.",
         "The tool was not educator-validated.",
+        "Educator validation has not occurred.",
         "Inspect the separation, not a confidence score.",
     ],
 )
