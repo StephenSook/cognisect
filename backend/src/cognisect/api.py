@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 from uuid import UUID
 
@@ -43,6 +44,7 @@ from cognisect.db_models import SCHEMA_VERSION
 from cognisect.interpreter import COMPILER_VERSION, REGISTRY_VERSION
 from cognisect.model_analyzer import ResponsesAnalyzer
 from cognisect.model_attempts import ATTEMPT_GRACE_SECONDS, PostgresAttemptJournal
+from cognisect.rate_limit import PostgresRateLimiter, RateLimitDecision
 from cognisect.repositories import (
     ConcurrentWriteError,
     OwnedResourceNotFoundError,
@@ -57,6 +59,7 @@ from cognisect.services import (
     GraphRuntime,
     LearnerTokenNotFoundError,
     ReplayConflictError,
+    RetentionService,
     WorkflowService,
 )
 from cognisect.workflow import WorkflowTransitionError
@@ -82,6 +85,8 @@ IdempotencyKey = Annotated[
 ]
 OwnerCookie = Annotated[str | None, Cookie(alias=OWNER_COOKIE_NAME)]
 OWNER_SECRET_PATTERN = re.compile(r"^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$")
+EXPECTED_ALEMBIC_HEAD = "f4c2d8a6b310"
+RATE_LIMIT_WINDOW_SECONDS = 3_600
 
 
 def _owner_or_404(owner_secret: str | None) -> str:
@@ -98,6 +103,16 @@ def _privacy_headers(response: Response) -> None:
 def _requires_privacy_headers(path: str) -> bool:
     return path.startswith("/v1/respond/") or (
         path.startswith("/v1/workflows/") and path.endswith("/receipt")
+    )
+
+
+def _raise_if_limited(decision: RateLimitDecision) -> None:
+    if decision.allowed:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="rate limit exceeded",
+        headers={"Retry-After": str(decision.retry_after_seconds)},
     )
 
 
@@ -125,6 +140,47 @@ def create_app(  # noqa: C901, PLR0915
     )
     if graph_runtime is not None:
         service.attach_graph_runtime(graph_runtime)
+    rate_limiter = PostgresRateLimiter(
+        session_factory,
+        abuse_key_pepper=resolved_settings.abuse_key_pepper,
+    )
+
+    async def retention_loop(retention: RetentionService) -> None:
+        while True:
+            try:
+                purged_cases = await retention.purge_expired()
+                logger.info(
+                    "retention_iteration_complete",
+                    purged_cases=purged_cases,
+                )
+            except Exception:
+                logger.exception("retention_iteration_failed")
+            await asyncio.sleep(resolved_settings.retention_interval_seconds)
+
+    @asynccontextmanager
+    async def production_runtime(
+        _app: FastAPI, active_graph_runtime: GraphRuntime | None
+    ) -> AsyncIterator[None]:
+        task: asyncio.Task[None] | None = None
+        if is_production(resolved_settings):
+            retention = RetentionService(
+                session_factory,
+                retention_days=resolved_settings.retention_days,
+                graph_runtime=active_graph_runtime,
+                rate_limiter=rate_limiter,
+            )
+            task = asyncio.create_task(
+                retention_loop(retention),
+                name="cognisect-production-retention",
+            )
+            _app.state.retention_task = task
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -141,9 +197,11 @@ def create_app(  # noqa: C901, PLR0915
                     )
                     service.attach_graph_runtime(managed_runtime)
                     _app.state.graph_runtime = managed_runtime
-                    yield
+                    async with production_runtime(_app, managed_runtime):
+                        yield
             else:
-                yield
+                async with production_runtime(_app, graph_runtime):
+                    yield
         finally:
             if owned_engine is not None:
                 await owned_engine.dispose()
@@ -161,6 +219,8 @@ def create_app(  # noqa: C901, PLR0915
     app.state.session_factory = session_factory
     app.state.workflow_service = service
     app.state.graph_runtime = graph_runtime
+    app.state.rate_limiter = rate_limiter
+    app.state.retention_task = None
 
     @app.middleware("http")
     async def structured_request_log(
@@ -267,10 +327,20 @@ def create_app(  # noqa: C901, PLR0915
         },
     )
     async def create_case_route(
+        http_request: Request,
         request: CreateCaseRequest,
         idempotency_key: IdempotencyKey,
         owner_secret: OwnerCookie = None,
     ) -> Response:
+        client_host = http_request.client.host if http_request.client is not None else "unknown"
+        _raise_if_limited(
+            await rate_limiter.consume(
+                scope="case_creation",
+                key_material=client_host,
+                limit=resolved_settings.case_creation_limit_per_hour,
+                window_seconds=RATE_LIMIT_WINDOW_SECONDS,
+            )
+        )
         if owner_secret is None or OWNER_SECRET_PATTERN.fullmatch(owner_secret) is None:
             bootstrapped_secret = await service.bootstrap_owner()
             bootstrap_response = JSONResponse(
@@ -309,6 +379,14 @@ def create_app(  # noqa: C901, PLR0915
         owner_secret: OwnerCookie = None,
     ) -> WorkflowResponse:
         secret = _owner_or_404(owner_secret)
+        _raise_if_limited(
+            await rate_limiter.consume(
+                scope="analysis",
+                key_material=secret,
+                limit=resolved_settings.analysis_limit_per_hour,
+                window_seconds=RATE_LIMIT_WINDOW_SECONDS,
+            )
+        )
         workflow = await service.analyze_case(
             owner_secret=secret,
             case_id=case_id,
@@ -447,6 +525,24 @@ def create_app(  # noqa: C901, PLR0915
             await session.execute(text("SELECT 1"))
         return {"status": "ok"}
 
+    @app.get("/ready")
+    async def ready_route() -> dict[str, str]:
+        try:
+            async with session_factory() as session:
+                await session.execute(text("SELECT 1"))
+                revisions = list(
+                    (
+                        await session.scalars(
+                            text("SELECT version_num FROM alembic_version")
+                        )
+                    ).all()
+                )
+        except Exception as exception:
+            raise HTTPException(status_code=503, detail="not ready") from exception
+        if revisions != [EXPECTED_ALEMBIC_HEAD]:
+            raise HTTPException(status_code=503, detail="not ready")
+        return {"status": "ready"}
+
     @app.get("/version", response_model=VersionResponse)
     async def version_route() -> VersionResponse:
         return VersionResponse(
@@ -454,6 +550,7 @@ def create_app(  # noqa: C901, PLR0915
             schema_version=SCHEMA_VERSION,
             registry_version=REGISTRY_VERSION,
             compiler_version=COMPILER_VERSION,
+            source_revision=resolved_settings.source_revision,
         )
 
     return app

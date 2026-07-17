@@ -39,6 +39,8 @@ packages = ["backend/src/cognisect"]
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 markers = [
   "postgres: requires the checked-in Postgres service and never skips",
 ]

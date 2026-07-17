@@ -20,6 +20,7 @@ VALID_ENV = {
     "database_url": "postgresql+psycopg://cognisect:password@db:5432/cognisect",
     "owner_secret_pepper": "o" * 32,
     "learner_token_pepper": "l" * 32,
+    "abuse_key_pepper": "a" * 32,
     "public_app_url": "https://cognisect.example",
     "openai_api_key": "sk-test-" + ("k" * 32),
 }
@@ -32,6 +33,7 @@ VALID_ENV = {
         ("database_url", "postgresql://localhost/not-explicit"),
         ("owner_secret_pepper", "short"),
         ("learner_token_pepper", "replace-with-at-least-32-random-characters"),
+        ("abuse_key_pepper", "shared-or-short"),
     ],
 )
 def test_settings_reject_non_postgres_or_placeholder_security_values(field, value):
@@ -67,6 +69,14 @@ def test_development_settings_allow_local_public_url_but_require_explicit_pepper
     assert settings.database_url.startswith("postgresql+")
 
 
+@pytest.mark.parametrize("shared_with", ["owner_secret_pepper", "learner_token_pepper"])
+def test_abuse_pepper_must_be_dedicated(shared_with: str) -> None:
+    values = {**VALID_ENV, "abuse_key_pepper": VALID_ENV[shared_with]}
+
+    with pytest.raises(ValidationError, match="ABUSE_KEY_PEPPER must be distinct"):
+        Settings(**values)
+
+
 def test_settings_accept_true_environment_string_for_strict_msgpack(monkeypatch):
     monkeypatch.setenv("LANGGRAPH_STRICT_MSGPACK", "true")
 
@@ -79,6 +89,23 @@ def test_settings_accept_true_environment_string_for_strict_msgpack(monkeypatch)
     )
 
     assert settings.langgraph_strict_msgpack is True
+
+
+@pytest.mark.parametrize("revision", ["ABCDEF" * 7, "abc123", "g" * 40, ""])
+def test_source_revision_rejects_everything_except_development_or_lowercase_git_sha(
+    revision: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(**{**VALID_ENV, "source_revision": revision})
+
+
+def test_render_git_commit_is_the_source_revision_fallback(monkeypatch) -> None:
+    monkeypatch.delenv("SOURCE_REVISION", raising=False)
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "a" * 40)
+
+    settings = Settings(_env_file=None, **VALID_ENV)
+
+    assert settings.source_revision == "a" * 40
 
 
 def test_custom_case_requires_deidentified_attestation_and_forbids_identifiers():

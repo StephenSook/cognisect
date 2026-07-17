@@ -16,6 +16,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ready Route */
+        get: operations["ready_route_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/cases": {
         parameters: {
             query?: never;
@@ -616,6 +633,8 @@ export interface components {
             registry_version: string;
             /** Schema Version */
             schema_version: string;
+            /** Source Revision */
+            source_revision: string;
             /** Version */
             version: string;
         };
@@ -692,6 +711,28 @@ export interface components {
 export type $defs = Record<string, never>;
 export interface operations {
     health_route_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    ready_route_ready_get: {
         parameters: {
             query?: never;
             header?: never;

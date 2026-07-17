@@ -37,6 +37,13 @@ Sha256Hex = Annotated[
         pattern=r"^[0-9a-f]{64}$",
     ),
 ]
+SourceRevision = Annotated[
+    str,
+    StringConstraints(
+        strict=True,
+        pattern=r"^(?:development|[0-9a-f]{40})$",
+    ),
+]
 
 
 class SignedProblemDTO(StrictContractModel):
@@ -323,6 +330,7 @@ class VersionResponse(StrictContractModel):
     schema_version: str
     registry_version: str
     compiler_version: str
+    source_revision: SourceRevision
 
 
 LearnerTokenResponse.model_rebuild()

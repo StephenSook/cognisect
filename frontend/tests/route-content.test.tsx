@@ -69,12 +69,14 @@ describe("runtime evidence allowlist", () => {
           schema_version: "workflow.v1",
           registry_version: "rule_registry.v1",
           compiler_version: "counterexample_compiler.v1",
+          source_revision: "a".repeat(40),
         }}
         workflow={workflow}
       />,
     );
 
     expect(screen.getByText("rule_registry.v1")).toBeInTheDocument();
+    expect(screen.getByText("a".repeat(40))).toBeInTheDocument();
     expect(screen.getByText("educator_authored")).toBeInTheDocument();
     expect(screen.getByText("req_public_metadata")).toBeInTheDocument();
     expect(screen.getByText(/No live-model status is claimed/)).toBeInTheDocument();

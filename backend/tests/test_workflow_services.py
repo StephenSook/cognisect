@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from cognisect.api_models import (
     CreateCaseRequest,
@@ -28,10 +28,12 @@ from cognisect.db_models import (
     LearnerTokenRecord,
     OwnerRecord,
     ProbePredictionRecord,
+    RateLimitWindowRecord,
     TeacherReviewRecord,
     WorkflowRecord,
 )
 from cognisect.models import RuleInstanceV1, RuleMappingV1
+from cognisect.rate_limit import PostgresRateLimiter
 from cognisect.services import (
     AnalysisInput,
     AnalyzerExecutionError,
@@ -97,6 +99,7 @@ def test_settings() -> Settings:
         database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="",
     )
@@ -945,6 +948,34 @@ async def test_retention_purges_abandoned_empty_owner_sessions(
     assert await retention.purge_expired(now=now) == 0
     async with factory() as session:
         assert await session.scalar(select(func.count(OwnerRecord.id))) == 0
+
+
+@pytest.mark.postgres
+async def test_retention_iteration_also_purges_expired_limiter_buckets(
+    db_engine, db_session, test_settings
+) -> None:
+    del db_session
+    factory = create_session_factory(db_engine)
+    limiter = PostgresRateLimiter(
+        factory,
+        abuse_key_pepper=test_settings.abuse_key_pepper,
+    )
+    await limiter.consume("case_creation", "203.0.113.20", 1, 3_600)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(RateLimitWindowRecord).values(
+                expires_at=datetime.now(UTC) - timedelta(seconds=1)
+            )
+        )
+
+    retention = RetentionService(
+        factory,
+        retention_days=test_settings.retention_days,
+        rate_limiter=limiter,
+    )
+    assert await retention.purge_expired() == 0
+    async with factory() as session:
+        assert await session.scalar(select(func.count(RateLimitWindowRecord.bucket_hash))) == 0
 
 
 @pytest.mark.postgres

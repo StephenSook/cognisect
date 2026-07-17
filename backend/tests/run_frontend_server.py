@@ -84,6 +84,7 @@ def main() -> None:
         database_url=TEST_DATABASE_URL,
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
         public_app_url="http://127.0.0.1:3100",
         openai_api_key="",
     )

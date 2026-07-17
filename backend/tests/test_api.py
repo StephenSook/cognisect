@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 
 from cognisect.api import OWNER_COOKIE_NAME, create_app
 from cognisect.body_limit import MAX_REQUEST_BODY_BYTES
@@ -39,6 +39,7 @@ EXPECTED_PATHS = {
     "/v1/workflows/{workflow_id}/audit",
     "/v1/workflows/{workflow_id}/receipt",
     "/health",
+    "/ready",
     "/version",
 }
 
@@ -76,6 +77,7 @@ def api_settings() -> Settings:
         database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="FORBIDDEN-PROVIDER-CREDENTIAL-41ac",
     )
@@ -141,11 +143,32 @@ async def test_public_route_paths_are_exact(app):
 @pytest.mark.postgres
 async def test_health_and_version(client):
     health = await client.get("/health")
+    ready = await client.get("/ready")
     version = await client.get("/version")
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ready"}
     assert version.status_code == 200
     assert version.json()["registry_version"] == "rule_registry.v1"
+    assert version.json()["source_revision"] == "development"
+
+
+@pytest.mark.postgres
+async def test_readiness_fails_closed_on_alembic_head_mismatch(client, db_engine):
+    async with db_engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE alembic_version SET version_num = 'e3b1c7d9a205'")
+        )
+    try:
+        response = await client.get("/ready")
+        assert response.status_code == 503
+        assert response.json() == {"detail": "not ready"}
+    finally:
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE alembic_version SET version_num = 'f4c2d8a6b310'")
+            )
 
 
 @pytest.mark.postgres
@@ -537,6 +560,7 @@ async def test_production_owner_cookie_is_hardened(db_engine, db_session):
         database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
         public_app_url="https://cognisect.example",
         openai_api_key="sk-test-" + ("k" * 32),
     )

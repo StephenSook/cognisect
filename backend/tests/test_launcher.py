@@ -77,6 +77,7 @@ def test_launcher_never_access_logs_raw_learner_request_targets(unused_tcp_port:
         "DATABASE_URL": "postgresql+psycopg://unused:unused@127.0.0.1:1/unused",
         "OWNER_SECRET_PEPPER": "o" * 32,
         "LEARNER_TOKEN_PEPPER": "l" * 32,
+        "ABUSE_KEY_PEPPER": "a" * 32,
         "PUBLIC_APP_URL": "http://127.0.0.1",
         "OPENAI_API_KEY": "",
         "PORT": str(unused_tcp_port),

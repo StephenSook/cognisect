@@ -994,6 +994,11 @@
             "title": "Schema Version",
             "type": "string"
           },
+          "source_revision": {
+            "pattern": "^(?:development|[0-9a-f]{40})$",
+            "title": "Source Revision",
+            "type": "string"
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -1003,7 +1008,8 @@
           "version",
           "schema_version",
           "registry_version",
-          "compiler_version"
+          "compiler_version",
+          "source_revision"
         ],
         "title": "VersionResponse",
         "type": "object"
@@ -1233,6 +1239,28 @@
           }
         },
         "summary": "Health Route"
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "ready_route_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Ready Route Ready Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ready Route"
       }
     },
     "/v1/cases": {

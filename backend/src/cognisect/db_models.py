@@ -13,9 +13,11 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
+    PrimaryKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -63,6 +65,42 @@ class OwnerRecord(Base):
     )
 
     cases: Mapped[list[CaseRecord]] = relationship(back_populates="owner", cascade="all, delete")
+
+
+class RateLimitWindowRecord(Base):
+    """HMAC-keyed fixed-window counter without persisted client identifiers."""
+
+    __tablename__ = "rate_limit_windows"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "scope",
+            "bucket_hash",
+            "window_started_at",
+            name="pk_rate_limit_windows",
+        ),
+        CheckConstraint(
+            "char_length(scope) BETWEEN 1 AND 64",
+            name="ck_rate_limit_windows_scope",
+        ),
+        CheckConstraint(
+            "bucket_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_rate_limit_windows_bucket_hash",
+        ),
+        CheckConstraint("consumed >= 1", name="ck_rate_limit_windows_consumed"),
+        CheckConstraint(
+            "expires_at > window_started_at",
+            name="ck_rate_limit_windows_expiry",
+        ),
+        Index("ix_rate_limit_windows_scope_expires_at", "scope", "expires_at"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    bucket_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed: Mapped[int] = mapped_column(Integer, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class CaseRecord(Timestamped, Base):

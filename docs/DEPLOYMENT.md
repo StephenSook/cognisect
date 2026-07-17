@@ -28,7 +28,8 @@ root-directory guidance](https://vercel.com/docs/monorepos).
    the same region. Upgrade both deliberately before making durability or backup
    claims.
 2. Set `OPENAI_API_KEY` and the final HTTPS `PUBLIC_APP_URL` in Render. Generated
-   owner and learner peppers must be distinct and retained outside the database.
+   `OWNER_SECRET_PEPPER`, `LEARNER_TOKEN_PEPPER`, and `ABUSE_KEY_PEPPER` values
+   must all be distinct and retained outside the database.
 3. Import the GitHub repository into a dedicated Vercel project and set Root
    Directory to `frontend`; enable source files outside that directory.
 4. Set `COGNISECT_BACKEND_URL` to the Render HTTPS origin and
@@ -41,11 +42,21 @@ Render's connection string is normalized at process start from `postgres://` or
 `postgresql://` to SQLAlchemy's explicit `postgresql+psycopg://` dialect without
 logging the credential.
 
+The production Blueprint sets `RETENTION_DAYS=30`,
+`RETENTION_INTERVAL_SECONDS=21600`, `CASE_CREATION_LIMIT_PER_HOUR=60`, and
+`ANALYSIS_LIMIT_PER_HOUR=30`. Render supplies `RENDER_GIT_COMMIT`; local and other
+platform deployments may set `SOURCE_REVISION`. Either value must be a full
+40-character lowercase Git SHA; when neither is present, `/version` reports the
+explicit local sentinel `development`. Operators must reject that sentinel when
+verifying a production release.
+
 ## Release procedure
 
 1. Merge only after all six GitHub checks succeed.
 2. Record the merged SHA. Query check runs and require six completed successes.
-3. Confirm Render's pre-deploy migration and health check succeed.
+3. Confirm startup migration and the `/ready` Render check succeed. `/ready`
+   requires database access and exact Alembic head `f4c2d8a6b310`; `/health`
+   remains the backward-compatible database liveness response.
 4. Confirm Vercel and Render display the same intended source SHA.
 5. From a logged-out teacher browser, create and analyze a de-identified case,
    approve the probe, and copy the learner link.
@@ -55,8 +66,8 @@ logging the credential.
    and read the persisted audit.
 8. Repeat five times with real model telemetry. Record request IDs, exact model
    snapshots, latency, token usage, cached tokens, and actual cost.
-9. Verify `/version`, `/health`, browser console, CORS, response privacy headers,
-   owner isolation, and served SHA evidence.
+9. Verify `/version`, `/health`, `/ready`, browser console, CORS, response privacy
+   headers, owner isolation, limiter `Retry-After`, and served SHA evidence.
 
 Fixture analyzers and local test servers do not satisfy production evidence.
 

@@ -22,6 +22,7 @@ export function RuntimeEvidence({
         <div><dt>Workflow schema</dt><dd>{version.schema_version}</dd></div>
         <div><dt>Rule registry</dt><dd>{version.registry_version}</dd></div>
         <div><dt>Compiler</dt><dd>{version.compiler_version}</dd></div>
+        <div><dt>Source revision</dt><dd>{version.source_revision}</dd></div>
       </dl>
       <h2>Route policy</h2>
       <ul className="route-policy">

@@ -13,6 +13,7 @@ describe("generated API client wrapper", () => {
         schema_version: "workflow.v1",
         registry_version: "rule_registry.v1",
         compiler_version: "counterexample_compiler.v1",
+        source_revision: "development",
         }),
       );
     const client = createApiClient(

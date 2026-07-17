@@ -49,6 +49,7 @@ async def test_production_lifespan_attaches_managed_runtime_without_implicit_set
         database_url=TEST_DATABASE_URL,
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
         public_app_url="https://cognisect.example",
         openai_api_key="sk-test-" + ("k" * 32),
     )
@@ -148,6 +149,7 @@ async def test_full_api_loop_uses_official_transport_and_real_checkpoint_tables(
         database_url=TEST_DATABASE_URL,
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="sk-test-" + ("k" * 32),
     )
@@ -289,6 +291,7 @@ async def test_public_api_recovers_across_fresh_apps_after_both_durable_boundari
         database_url=TEST_DATABASE_URL,
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="sk-test-" + ("k" * 32),
     )

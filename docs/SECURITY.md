@@ -76,6 +76,16 @@ The repository hygiene scanner passed. npm audit and pip-audit each reported zer
 known vulnerabilities for the installed locked release dependencies. A zero result
 means no advisory match at audit time, not proof that every dependency is safe.
 
+Public case creation now uses a Postgres fixed-window quota keyed by an HMAC-SHA256
+of the request client host. The quota is consumed before owner bootstrap, so 428
+bootstrap attempts are bounded. Analysis uses a separate quota keyed by the owner
+capability. Only the scope, HMAC bucket, UTC window timestamps, and counter persist;
+raw client hosts and owner capabilities are never written to the limiter table.
+The dedicated `ABUSE_KEY_PEPPER` must not equal either capability pepper. Atomic
+`INSERT ... ON CONFLICT` consumption makes the configured limit exact across API
+processes. A rejected request returns only `{"detail":"rate limit exceeded"}` and
+a numeric `Retry-After` header.
+
 ## Production stress evidence
 
 The sanitized gate ran against public SHA
@@ -110,13 +120,19 @@ npm run test:e2e
 
 ## Data lifecycle and residual limits
 
-Default application retention is 30 days and configurable to 365. Owner-authorized
-deletion removes workflow educational content and checkpoints; a content-free HMAC
-tombstone prevents an old idempotency command from recreating it.
+Default application retention is 30 days and configurable to 365. In production,
+the application attaches the graph runtime first, then runs retention immediately
+and every 21,600 seconds. Each iteration removes expired educational content and
+checkpoints plus expired limiter buckets. Iteration failures are logged without
+stopping the API and are retried at the next interval. Owner-authorized deletion
+removes workflow educational content and checkpoints; a content-free HMAC tombstone
+prevents an old idempotency command from recreating it.
 
-The free preview has no documented distributed application rate limiter. Bounded
-payloads, strict schemas, one-response capabilities, provider timeouts, three-call
-model limits, and a cost circuit breaker reduce abuse impact but do not replace a
-production edge rate limiter. Free-tier backups, high availability, alerting, and
-long-term availability are not production-grade guarantees. Provider access and
-retention settings should be re-audited before any real educational deployment.
+The fixed-window limiter is a database-backed abuse bound, not authentication or a
+substitute for an edge DDoS service. A shared NAT can aggregate unrelated teachers,
+and correctness depends on the deployment exposing the intended request-client host
+to ASGI. Rotating `ABUSE_KEY_PEPPER` starts new logical buckets. Application purge
+does not erase provider logs or backups. Free-tier backups, high availability,
+alerting, and long-term availability are not production-grade guarantees. Provider
+access, proxy topology, quotas, and retention should be re-audited before any real
+educational deployment.

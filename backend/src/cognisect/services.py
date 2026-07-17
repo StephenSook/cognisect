@@ -217,6 +217,14 @@ class GraphRuntime(Protocol):
         ...
 
 
+class ExpiredBucketPurger(Protocol):
+    """Limiter cleanup used by each complete production retention iteration."""
+
+    async def purge_expired(self) -> int:
+        """Delete limiter buckets whose fixed windows have elapsed."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class CreatedCase:
     """New owner capability and bound aggregate identifiers."""
@@ -1725,6 +1733,7 @@ class RetentionService:
         *,
         retention_days: int = 30,
         graph_runtime: GraphRuntime | None = None,
+        rate_limiter: ExpiredBucketPurger | None = None,
     ) -> None:
         """Initialize a Postgres retention selector with a bounded day count."""
         if retention_days < 1:
@@ -1733,6 +1742,7 @@ class RetentionService:
         self._sessions = session_factory
         self._retention_days = retention_days
         self._graph_runtime = graph_runtime
+        self._rate_limiter = rate_limiter
 
     async def select_expired(self, *, now: datetime | None = None) -> list[UUID]:
         """Return stable workflow IDs whose cases exceed retention."""
@@ -1812,4 +1822,7 @@ class RetentionService:
                         ),
                     )
                 )
-            return len(rows)
+            purged_cases = len(rows)
+        if self._rate_limiter is not None:
+            await self._rate_limiter.purge_expired()
+        return purged_cases

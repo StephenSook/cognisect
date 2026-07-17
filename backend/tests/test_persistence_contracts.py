@@ -28,6 +28,7 @@ from cognisect.db_models import (
     ModelCallRecord,
     OwnerRecord,
     ProbePredictionRecord,
+    RateLimitWindowRecord,
     TeacherReviewRecord,
     WorkflowRecord,
 )
@@ -54,6 +55,7 @@ EXPECTED_TABLES = {
     "model_calls",
     "owners",
     "probe_predictions",
+    "rate_limit_windows",
     "teacher_reviews",
     "workflows",
 }
@@ -78,6 +80,7 @@ def test_metadata_has_every_required_record_type():
         IdempotencyRecord,
         InvalidLearnerCommandRecord,
         AuditEventRecord,
+        RateLimitWindowRecord,
     }
 
 
@@ -89,6 +92,9 @@ def test_schema_never_has_raw_owner_or_learner_secret_columns():
     assert "derivation_nonce" in token_columns
     assert {"secret", "owner_secret", "raw_secret"}.isdisjoint(owner_columns)
     assert {"token", "learner_token", "raw_token"}.isdisjoint(token_columns)
+    limiter_columns = set(inspect(RateLimitWindowRecord).columns.keys())
+    assert "bucket_hash" in limiter_columns
+    assert {"ip", "ip_address", "client_host", "owner_secret"}.isdisjoint(limiter_columns)
 
 
 def test_replay_metadata_is_hash_only_and_probe_hashes_are_not_global_ids():

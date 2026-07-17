@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
     dockerCommand: "/bin/sh -c ./scripts/migrate.sh && exec ./scripts/run-backend.sh"
-    healthCheckPath: /health
+    healthCheckPath: /ready
     autoDeployTrigger: checksPass
     envVars:
       - key: APP_ENV
@@ -22,9 +22,17 @@ services:
         generateValue: true
       - key: LEARNER_TOKEN_PEPPER
         generateValue: true
+      - key: ABUSE_KEY_PEPPER
+        generateValue: true
       - key: PUBLIC_APP_URL
         sync: false
       - key: RETENTION_DAYS
+        value: "30"
+      - key: RETENTION_INTERVAL_SECONDS
+        value: "21600"
+      - key: CASE_CREATION_LIMIT_PER_HOUR
+        value: "60"
+      - key: ANALYSIS_LIMIT_PER_HOUR
         value: "30"
       - key: MAX_MODEL_CALLS_PER_CASE
         value: "3"
