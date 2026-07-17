@@ -26,20 +26,25 @@
     "test:e2e": "npm run build && playwright test"
   },
   "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "5.2.8",
+    "@fontsource-variable/lexend": "5.2.11",
+    "@fontsource-variable/source-sans-3": "5.2.9",
     "next": "16.2.10",
     "openapi-fetch": "0.17.0",
+    "qrcode": "1.5.4",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@eslint/compat": "2.1.0",
     "@axe-core/playwright": "4.12.1",
+    "@eslint/compat": "2.1.0",
     "@playwright/test": "1.61.1",
     "@testing-library/dom": "10.4.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
     "@types/node": "26.1.1",
+    "@types/qrcode": "1.5.6",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "axe-core": "4.12.1",

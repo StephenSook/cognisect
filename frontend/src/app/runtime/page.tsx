@@ -34,11 +34,19 @@ export default async function RuntimePage({
   }
 
   return (
-    <>
-      <form method="get">
+    <article className="workbench runtime-workbench">
+      <header className="workbench-heading">
+        <div>
+          <p className="eyebrow eyebrow--ink">Served evidence</p>
+          <h1>Runtime evidence</h1>
+          <p>Inspect only version and request metadata returned by the public API.</p>
+        </div>
+        <span className="runtime-beacon mono"><span aria-hidden="true" /> API ONLINE</span>
+      </header>
+      <form className="runtime-form" method="get">
         <label htmlFor="runtime-workflow-id">Owned workflow ID (optional)</label>
         <input id="runtime-workflow-id" name="workflow_id" />
-        <button type="submit">Load persisted metadata</button>
+        <button className="secondary-button" type="submit">Load persisted metadata</button>
       </form>
       {workflowId !== undefined && !UUID_PATTERN.test(workflowId) ? (
         <p role="alert">Enter a valid workflow ID.</p>
@@ -47,6 +55,6 @@ export default async function RuntimePage({
         <p role="alert">Owned workflow metadata is unavailable.</p>
       ) : null}
       <RuntimeEvidence version={version.data} workflow={workflow} />
-    </>
+    </article>
   );
 }

@@ -34,8 +34,10 @@ describe("teacher report content", () => {
       />,
     );
 
-    expect(screen.getByText(/Rank 2: supported/)).toBeInTheDocument();
-    expect(screen.getByText(/Generated proposal:/)).toHaveTextContent(
+    expect(screen.getByText("supported").closest("li")).toHaveTextContent(
+      "Hypothesis 02supported",
+    );
+    expect(screen.getByText("Generated proposal").parentElement).toHaveTextContent(
       "Review the deterministic evidence after the response.",
     );
     expect(screen.getByRole("button", { name: "Save review" })).toBeInTheDocument();

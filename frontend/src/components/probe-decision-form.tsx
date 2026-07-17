@@ -55,14 +55,18 @@ export function ProbeDecisionForm({
   }
 
   return (
-    <section aria-labelledby="probe-decision-heading">
+    <section className="decision-stage" aria-labelledby="probe-decision-heading">
+      <p className="card-index mono">TEACHER INTERRUPT / REQUIRED</p>
       <h2 id="probe-decision-heading">Teacher probe decision</h2>
-      <button type="button" disabled={pending} onClick={() => void decide(true)}>
-        Approve probe
-      </button>
-      <button type="button" disabled={pending} onClick={() => void decide(false)}>
-        Decline probe
-      </button>
+      <p>Inspect the compiled disagreement before releasing the learner link.</p>
+      <div className="decision-actions">
+        <button className="primary-button" type="button" disabled={pending} onClick={() => void decide(true)}>
+          Approve probe
+        </button>
+        <button className="secondary-button" type="button" disabled={pending} onClick={() => void decide(false)}>
+          Decline probe
+        </button>
+      </div>
       <p aria-live="polite">{message}</p>
     </section>
   );

@@ -3,7 +3,7 @@
 export default function GlobalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <html lang="en">
-      <body>
+      <body className="global-error">
         <main>
           <h1>COGNISECT is unavailable</h1>
           <p role="alert">The application could not render safely.</p>

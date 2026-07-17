@@ -131,12 +131,20 @@ export function LabForm() {
   const fieldsLocked = commandLocked || caseCommitted;
   return (
     <form
+      className="case-form"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
     >
+      <div className="form-section-heading">
+        <span className="mono">01</span>
+        <div>
+          <h2>Source and evidence</h2>
+          <p>Choose the provenance tier before entering the observed work.</p>
+        </div>
+      </div>
       <label htmlFor="source-tier">Case source</label>
       <select
         id="source-tier"
@@ -152,43 +160,50 @@ export function LabForm() {
         ))}
       </select>
       {sourceMode === "public_exemplar" ? (
-        <p>
+        <p className="field-note">
           Educator-authored public exemplar {DEFAULT_PUBLIC_EDUCATOR_CASE.record_id}. It is not
           learner work or a published student record.
         </p>
       ) : null}
 
-      <label htmlFor="first-integer">First integer</label>
-      <input
-        id="first-integer"
-        name="a"
-        inputMode="numeric"
-        required
-        value={first}
-        readOnly={sourceMode === "public_exemplar"}
-        disabled={fieldsLocked}
-        aria-describedby={fieldErrors.first ? "first-integer-error" : undefined}
-        onChange={(event) => setFirst(event.target.value)}
-      />
-      {fieldErrors.first ? (
-        <p id="first-integer-error" role="alert">{fieldErrors.first}</p>
-      ) : null}
-
-      <label htmlFor="second-integer">Second integer</label>
-      <input
-        id="second-integer"
-        name="b"
-        inputMode="numeric"
-        required
-        value={second}
-        readOnly={sourceMode === "public_exemplar"}
-        disabled={fieldsLocked}
-        aria-describedby={fieldErrors.second ? "second-integer-error" : undefined}
-        onChange={(event) => setSecond(event.target.value)}
-      />
-      {fieldErrors.second ? (
-        <p id="second-integer-error" role="alert">{fieldErrors.second}</p>
-      ) : null}
+      <fieldset className="operand-fields">
+        <legend>Subtraction problem</legend>
+        <div>
+          <label htmlFor="first-integer">First integer</label>
+          <input
+            id="first-integer"
+            name="a"
+            inputMode="numeric"
+            required
+            value={first}
+            readOnly={sourceMode === "public_exemplar"}
+            disabled={fieldsLocked}
+            aria-describedby={fieldErrors.first ? "first-integer-error" : undefined}
+            onChange={(event) => setFirst(event.target.value)}
+          />
+          {fieldErrors.first ? (
+            <p id="first-integer-error" role="alert">{fieldErrors.first}</p>
+          ) : null}
+        </div>
+        <span className="operand-symbol" aria-hidden="true">−</span>
+        <div>
+          <label htmlFor="second-integer">Second integer</label>
+          <input
+            id="second-integer"
+            name="b"
+            inputMode="numeric"
+            required
+            value={second}
+            readOnly={sourceMode === "public_exemplar"}
+            disabled={fieldsLocked}
+            aria-describedby={fieldErrors.second ? "second-integer-error" : undefined}
+            onChange={(event) => setSecond(event.target.value)}
+          />
+          {fieldErrors.second ? (
+            <p id="second-integer-error" role="alert">{fieldErrors.second}</p>
+          ) : null}
+        </div>
+      </fieldset>
 
       <label htmlFor="observed-work">Observed work</label>
       <textarea
@@ -226,13 +241,13 @@ export function LabForm() {
         </>
       ) : null}
 
-      {error === null ? null : <p role="alert">{error}</p>}
+      {error === null ? null : <p className="form-alert" role="alert">{error}</p>}
       {commandLocked ? (
         <p>The command fields are locked so every retry sends the exact same request.</p>
       ) : null}
       {caseCommitted ? <p>The case is saved; retry runs only analysis.</p> : null}
       <p aria-live="polite">{pending ? "Creating and analyzing the case…" : ""}</p>
-      <button type="submit" disabled={pending}>
+      <button className="primary-button" type="submit" disabled={pending}>
         {commandLocked ? "Retry exact command" : "Create and analyze"}
       </button>
     </form>

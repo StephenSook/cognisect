@@ -434,6 +434,49 @@ describe("workflow polling", () => {
     );
   });
 
+  it("distinguishes probe-decline abstention from final-review abstention", () => {
+    const declinedProbe = workflowFixture("ABSTAINED");
+    const declined = render(<WorkflowPanel initialWorkflow={declinedProbe} />);
+    expect(
+      screen.getByText(
+        "The teacher declined this probe. The workflow abstained and no learner link was created.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+      "Teacher approvalHuman release gateAbstained",
+    );
+    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+      "Evidence updateExact prediction matchingNo update · abstained",
+    );
+    declined.unmount();
+
+    const finalReview = workflowFixture("ABSTAINED");
+    finalReview.deterministic_evidence = [
+      { template_id: "add_subtrahend", rank: 1, status: "weakened" },
+      { template_id: "absolute_difference", rank: 2, status: "supported" },
+    ];
+    finalReview.review_result = {
+      decision: "abstained",
+      note: "The represented rules do not resolve this case.",
+      edited_text: null,
+      created_at: "2026-07-16T12:00:00Z",
+    };
+
+    render(<WorkflowPanel initialWorkflow={finalReview} />);
+
+    expect(
+      screen.queryByText(
+        "The teacher declined this probe. The workflow abstained and no learner link was created.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+      "Teacher approvalHuman release gateApproved for release",
+    );
+    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
+      "Learner responseOne strict signed integerResponse recorded",
+    );
+  });
+
   it("shows a selectable-link fallback when clipboard copy is unavailable", async () => {
     const responseUrl = "http://localhost:3000/respond/raw-learner-token";
     vi.stubGlobal(

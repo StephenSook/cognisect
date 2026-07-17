@@ -72,21 +72,29 @@ export function LearnerResponseForm({ token, probe }: { token: string; probe: Le
 
   if (receipt !== null) {
     return (
-      <section aria-live="polite">
+      <section className="learner-card learner-receipt" aria-live="polite">
+        <span className="receipt-mark" aria-hidden="true">✓</span>
         <h1>Response received</h1>
-        <p>Receipt: {receipt.receipt_id}</p>
-        <p>Accepted at: {receipt.accepted_at}</p>
+        <p>Your signed-integer answer was recorded once.</p>
+        <dl className="receipt-metadata mono">
+          <div><dt>Receipt</dt><dd>{receipt.receipt_id}</dd></div>
+          <div><dt>Accepted</dt><dd>{receipt.accepted_at}</dd></div>
+        </dl>
       </section>
     );
   }
 
   return (
-    <section>
+    <section className="learner-card">
+      <p className="eyebrow eyebrow--ink">One separating probe</p>
       <h1>Learner response</h1>
-      <p>
-        Solve: {probe.problem.a} − ({probe.problem.b})
+      <p className="learner-instructions">{probe.instructions}</p>
+      <p className="math-problem" aria-label={`Solve ${probe.problem.a} minus ${probe.problem.b}`}>
+        <span className="math-label">Solve:</span>
+        <span>{probe.problem.a}</span>
+        <span aria-hidden="true">−</span>
+        <span>({probe.problem.b})</span>
       </p>
-      <p>{probe.instructions}</p>
       <form
         noValidate
         onSubmit={(event) => {
@@ -116,12 +124,12 @@ export function LearnerResponseForm({ token, probe }: { token: string; probe: Le
         {rationaleError ? (
           <p id="learner-rationale-error" role="alert">{rationaleError}</p>
         ) : null}
-        {error === null ? null : <p role="alert">{error}</p>}
+        {error === null ? null : <p className="form-alert" role="alert">{error}</p>}
         {commandLocked ? (
           <p>The response fields are locked so every retry sends the exact same answer.</p>
         ) : null}
         <p aria-live="polite">{pending ? "Submitting response…" : ""}</p>
-        <button type="submit" disabled={pending}>
+        <button className="primary-button" type="submit" disabled={pending}>
           {commandLocked ? "Retry exact response" : "Submit response"}
         </button>
       </form>

@@ -86,7 +86,8 @@ export function ReviewForm({
   }
 
   return (
-    <section aria-labelledby="review-heading">
+    <section className="review-stage" aria-labelledby="review-heading">
+      <p className="card-index mono">FINAL HUMAN DECISION</p>
       <h2 id="review-heading">Teacher review</h2>
       <form
         noValidate
@@ -141,7 +142,7 @@ export function ReviewForm({
         {commandLocked ? (
           <p>The review fields are locked so every retry sends the exact same decision.</p>
         ) : null}
-        <button type="submit" disabled={pending}>
+        <button className="primary-button" type="submit" disabled={pending}>
           {commandLocked ? "Retry exact review" : "Save review"}
         </button>
       </form>
