@@ -87,7 +87,7 @@
 - Modify: `frontend/tests/route-content.test.tsx`
 
 **Interfaces:**
-- `CreateCaseRequest.provenance_record_id: str | None`, required for public exemplar tiers and forbidden for custom input.
+- `CreateCaseRequest.provenance_record_id: str | None`, accepted only for `educator_authored` input and forbidden for custom or other tiers. The public-exemplar frontend path always supplies it; free educator entry leaves it null.
 - `WorkflowResponse.provenance_record_id: str | None`.
 - `WorkflowResponse.learner_rationale: str | None` is owner-only and review-only.
 
