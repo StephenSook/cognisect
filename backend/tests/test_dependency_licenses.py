@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -19,6 +20,17 @@ generate_dependency_licenses = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(generate_dependency_licenses)
 
 VALID_SHA512_SRI = "sha512-" + base64.b64encode(bytes(64)).decode("ascii")
+SETUP_NODE_PREFIX = "actions/setup-node@"
+SHELL_COMMAND_BOUNDARY = r"(?m)(?:^|&&|\|\||[;|])\s*"
+NPM_ACTIVATION = re.compile(SHELL_COMMAND_BOUNDARY + r"corepack\s+enable\s+npm\b")
+NPM_PREPARATION = re.compile(
+    SHELL_COMMAND_BOUNDARY + r"corepack\s+prepare\s+npm@10\.9\.4\s+--activate\b",
+)
+NPM_VERSION_GATE = re.compile(
+    SHELL_COMMAND_BOUNDARY
+    + r"""test\s+["']?\$\(\s*npm\s+--version\s*\)["']?\s+=\s*["']?10\.9\.4["']?(?:\s|$)""",
+)
+NPM_EXECUTION = re.compile(SHELL_COMMAND_BOUNDARY + r"(?:npm|npx)(?=\s|$)")
 
 
 def _assert_registry_artifact(package_path: str, package: dict[str, object]) -> None:
@@ -56,15 +68,80 @@ def _assert_registry_artifact(package_path: str, package: dict[str, object]) -> 
     assert len(digest) == 64, f"{package_path} integrity must contain a 64-byte SHA-512 digest"
 
 
-def _ci_job_blocks(source: str) -> list[str]:
-    jobs_heading = re.search(r"(?m)^jobs\s*:\s*$", source)
-    assert jobs_heading is not None, "CI workflow lacks a jobs mapping"
-    jobs_source = source[jobs_heading.end() :]
-    starts = list(re.finditer(r"(?m)^  [a-zA-Z0-9_-]+:\s*$", jobs_source))
-    return [
-        jobs_source[match.start() : starts[index + 1].start() if index + 1 < len(starts) else None]
-        for index, match in enumerate(starts)
-    ]
+def _run_script(step: object) -> str | None:
+    if not isinstance(step, dict):
+        return None
+    run = step.get("run")
+    return run if isinstance(run, str) else None
+
+
+def _is_exact_activation(run: str) -> bool:
+    enable = NPM_ACTIVATION.search(run)
+    prepare = NPM_PREPARATION.search(run)
+    return enable is not None and prepare is not None and enable.start() < prepare.start()
+
+
+def _runs_npm_workload(run: str) -> bool:
+    version_gate_spans = [match.span() for match in NPM_VERSION_GATE.finditer(run)]
+    return any(
+        not any(start <= match.start() < end for start, end in version_gate_spans)
+        for match in NPM_EXECUTION.finditer(run)
+    )
+
+
+def _assert_ci_node_custody(source: str, *, expected_node_jobs: int = 4) -> None:
+    workflow = yaml.safe_load(source)
+    assert isinstance(workflow, dict), "CI workflow must be a mapping"
+    jobs = workflow.get("jobs")
+    assert isinstance(jobs, dict), "CI workflow must contain a jobs mapping"
+
+    node_job_count = 0
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
+            continue
+        steps = job["steps"]
+        setup_indices = [
+            index
+            for index, step in enumerate(steps)
+            if isinstance(step, dict)
+            and isinstance(step.get("uses"), str)
+            and step["uses"].startswith(SETUP_NODE_PREFIX)
+        ]
+        if not setup_indices:
+            continue
+        node_job_count += 1
+
+        run_steps = [
+            (index, run)
+            for index, step in enumerate(steps)
+            if (run := _run_script(step)) is not None
+        ]
+        npm_execution_indices = [
+            index for index, run in run_steps if _runs_npm_workload(run)
+        ]
+        first_npm_execution = min(npm_execution_indices, default=len(steps))
+
+        for setup_index in setup_indices:
+            activation_indices = [
+                index
+                for index, run in run_steps
+                if index > setup_index and _is_exact_activation(run)
+            ]
+            version_indices = [
+                index
+                for index, run in run_steps
+                if index > setup_index and NPM_VERSION_GATE.search(run) is not None
+            ]
+            assert activation_indices, f"{job_name} lacks exact npm activation after setup-node"
+            assert version_indices, f"{job_name} lacks exact npm version gate after setup-node"
+            assert min(activation_indices) < first_npm_execution, (
+                f"{job_name} activates npm after its first npm/npx command"
+            )
+            assert min(version_indices) < first_npm_execution, (
+                f"{job_name} verifies npm after its first npm/npx command"
+            )
+
+    assert node_job_count == expected_node_jobs
 
 
 def test_node_license_inventory_includes_isolated_openapi_tooling() -> None:
@@ -136,13 +213,146 @@ def test_registry_artifact_guard_rejects_untrusted_source_or_sri(
 
 def test_every_ci_node_job_activates_and_verifies_exact_npm() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    node_jobs = [block for block in _ci_job_blocks(workflow) if "actions/setup-node@" in block]
-    for job in node_jobs:
-        normalized = re.sub(r"\s+", " ", job)
-        assert "corepack enable npm && corepack prepare npm@10.9.4 --activate" in normalized
-        assert 'test "$(npm --version)" = "10.9.4"' in normalized
+    _assert_ci_node_custody(workflow)
 
-    assert len(node_jobs) == 4
+
+@pytest.mark.parametrize(
+    "workflow",
+    [
+        """
+jobs:
+  comments:
+    # - uses: actions/setup-node@v6
+    # - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+    # - run: test "$(npm --version)" = "10.9.4"
+    steps:
+      - run: echo safe
+""",
+        """
+jobs:
+  metadata:
+    steps:
+      - uses: actions/setup-node@v6
+      - name: corepack enable npm && corepack prepare npm@10.9.4 --activate
+        env:
+          VERIFY: test "$(npm --version)" = "10.9.4"
+      - run: npm ci
+""",
+        """
+jobs:
+  shell-comments:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: |
+          # corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: |
+          # test "$(npm --version)" = "10.9.4"
+      - run: npm ci
+""",
+        """
+jobs:
+  misplaced:
+    uses: actions/setup-node@v6
+    steps:
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: test "$(npm --version)" = "10.9.4"
+""",
+        """
+jobs:
+  non-mapping-step:
+    steps:
+      - actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: test "$(npm --version)" = "10.9.4"
+""",
+        """
+jobs:
+  late-activation:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: npm ci
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: test "$(npm --version)" = "10.9.4"
+""",
+        """
+jobs:
+  late-version-gate:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: npm ci
+      - run: test "$(npm --version)" = "10.9.4"
+""",
+        """
+jobs:
+  late-version-in-same-run:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: npm ci && test "$(npm --version)" = "10.9.4"
+""",
+        """
+jobs:
+  missing-activation:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: test "$(npm --version)" = "10.9.4"
+      - run: npm ci
+""",
+        """
+jobs:
+  missing-version-gate:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@10.9.4 --activate
+      - run: npm ci
+""",
+        """
+jobs:
+  wrong-version:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: corepack enable npm && corepack prepare npm@11.0.0 --activate
+      - run: test "$(npm --version)" = "11.0.0"
+      - run: npm ci
+""",
+    ],
+    ids=[
+        "evidence-only-in-comments",
+        "evidence-only-in-name-or-env",
+        "evidence-only-in-shell-comments",
+        "uses-at-job-level",
+        "uses-in-non-mapping-step",
+        "activation-after-npm-ci",
+        "version-gate-after-npm-ci",
+        "version-gate-after-npm-ci-in-same-run",
+        "missing-activation",
+        "missing-version-gate",
+        "wrong-version",
+    ],
+)
+def test_ci_node_custody_rejects_non_executable_or_late_evidence(workflow: str) -> None:
+    with pytest.raises(AssertionError):
+        _assert_ci_node_custody(workflow, expected_node_jobs=1)
+
+
+def test_ci_node_custody_accepts_valid_multiline_run_steps() -> None:
+    workflow = """
+jobs:
+  valid:
+    steps:
+      - uses: actions/setup-node@v6
+      - run: |
+          corepack enable npm &&
+            corepack prepare npm@10.9.4 --activate
+      - run: |
+          test "$(
+            npm --version
+          )" = "10.9.4"
+      - run: npm ci
+"""
+
+    _assert_ci_node_custody(workflow, expected_node_jobs=1)
 
 
 def test_every_npm_project_enforces_exact_engine_and_strict_mode() -> None:

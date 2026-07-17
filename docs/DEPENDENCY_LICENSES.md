@@ -2,7 +2,7 @@
 
 Generated from exact direct Python requirements, installed Python package metadata, the application `frontend/package-lock.json`, and the isolated OpenAPI generator lockfile. Locked Python transitive versions remain in `uv.lock`. This is an inventory, not legal advice; package license files remain authoritative. Regenerate with `uv run python scripts/generate_dependency_licenses.py`.
 
-Direct Python packages: 18. Locked npm packages: 592.
+Direct Python packages: 19. Locked npm packages: 592.
 
 ## Direct Python requirements
 
@@ -22,6 +22,7 @@ Direct Python packages: 18. Locked npm packages: 592.
 | `pydantic-settings` | `2.14.2` | MIT |
 | `pytest` | `9.1.1` | MIT |
 | `pytest-asyncio` | `1.4.0` | Apache-2.0 |
+| `pyyaml` | `6.0.3` | OSI Approved :: MIT License |
 | `ruff` | `0.15.21` | MIT |
 | `sqlalchemy` | `2.0.51` | MIT |
 | `structlog` | `26.1.0` | MIT OR Apache-2.0 |
