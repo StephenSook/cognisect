@@ -11,45 +11,54 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+UNSUPPORTED_POSITIVE_CLAIM_PATTERNS = (
+    r"\bconfirmed misconceptions?\b",
+    r"\bexact diagnos(?:is|es)\b",
+    r"\beducator[- ]reviewed\b",
+    r"\bvalidated by educators?\b",
+    r"\beducator validation\b",
+    r"\b(?:has|have)\s+classroom adoption\b",
+    r"\bimproves?\s+learning\b",
+    r"\b(?:used|deployed|adopted|piloted)\s+in\s+\d+\s+classrooms?\b",
+    r"\b(?:raises?|improves?|increases?|boosts?)\s+(?:learner|student)\s+scores?\b",
+    r"\bdiagnos(?:e|es|ed|ing)\s+misconceptions?\b",
+    r"\beducator[- ]validated\b",
+    r"\bsaves?\s+(?:teachers?|educators?|instructors?)\s+\d+(?:\.\d+)?\s+"
+    r"(?:minutes?|hours?)\b",
+    r"\b\d+(?:\.\d+)?%\s+confidence\b",
+    r"\b\d+(?:\.\d+)?\s+percent\s+confidence\b",
+    r"\bconfidence\b(?:\s+(?:score|level))?\s*(?:of|:|=)\s*\d",
+    r"\bconfidence\b(?:\s+(?:score|level))?\s+\d+(?:\.\d+)?%",
+    r"\bconfidence\s*:\s*(?:high|medium|low)\b",
+    r"\b(?:high|medium|low)\s+confidence\b",
+    r"\bconfidence score\b",
+)
+NEGATION_PATTERN = re.compile(r"\b(?:no|not|never|without)\b")
+CLAUSE_BOUNDARY_PATTERN = re.compile(r"[.!?;\n]|\b(?:but|however|yet)\b")
+
 
 def _json(relative_path: str) -> dict[str, Any]:
     return json.loads((ROOT / relative_path).read_text(encoding="utf-8"))
 
 
+def _has_nearby_negation(text: str, claim_start: int) -> bool:
+    prefix = text[:claim_start]
+    boundaries = tuple(CLAUSE_BOUNDARY_PATTERN.finditer(prefix))
+    if boundaries:
+        prefix = prefix[boundaries[-1].end() :]
+    nearby_words = re.findall(r"\b[\w'-]+\b", prefix)[-8:]
+    return NEGATION_PATTERN.search(" ".join(nearby_words)) is not None
+
+
 def _assert_no_unsupported_positive_claims(public_copy: str) -> None:
     lowered = public_copy.lower()
-    forbidden_claims = (
-        "confirmed misconception",
-        "exact diagnosis",
-        "educator-reviewed",
-        "validated by educators",
-        "has classroom adoption",
-        "improves learning",
-    )
-    present = [claim for claim in forbidden_claims if claim in lowered]
-    assert not present, f"forbidden public claims: {present}"
-
-    positive_claim_patterns = (
-        r"\b(?:used|deployed|adopted|piloted)\s+in\s+\d+\s+classrooms?\b",
-        r"\b(?:raises?|improves?|increases?|boosts?)\s+(?:learner|student)\s+scores?\b",
-        r"\bdiagnos(?:e|es|ed|ing)\s+misconceptions?\b",
-        r"\beducator[- ]validated\b",
-        r"\bsaves?\s+(?:teachers?|educators?|instructors?)\s+\d+(?:\.\d+)?\s+"
-        r"(?:minutes?|hours?)\b",
-    )
-    matched_patterns = [
-        pattern for pattern in positive_claim_patterns if re.search(pattern, lowered)
+    unsupported = [
+        match.group(0)
+        for pattern in UNSUPPORTED_POSITIVE_CLAIM_PATTERNS
+        for match in re.finditer(pattern, lowered)
+        if not _has_nearby_negation(lowered, match.start())
     ]
-    assert not matched_patterns, f"unsupported positive public claim: {matched_patterns}"
-
-    confidence_claims = (
-        r"\b\d+(?:\.\d+)?%\s+confidence\b",
-        r"\bconfidence(?:\s+(?:score|level))?\s*(?:of|:|=)\s*\d",
-        r"\bconfidence(?:\s+(?:score|level))?\s+\d+(?:\.\d+)?%",
-        r"\b(?:high|medium|low)\s+confidence\b",
-    )
-    for pattern in confidence_claims:
-        assert re.search(pattern, lowered) is None
+    assert not unsupported, f"unsupported positive public claims: {unsupported}"
 
 
 @pytest.mark.parametrize(
@@ -59,8 +68,14 @@ def _assert_no_unsupported_positive_claims(public_copy: str) -> None:
         "Raises learner scores.",
         "Diagnoses misconceptions.",
         "Educator-validated.",
+        "Educator validation occurred.",
         "Saves teachers 10 minutes.",
+        "Confidence: high.",
+        "95 percent confidence.",
         "Confidence 95%.",
+        "95% confidence.",
+        "High confidence.",
+        "This is a confidence score.",
     ],
 )
 def test_positive_claim_guard_rejects_unsupported_variants(claim: str) -> None:
@@ -74,6 +89,13 @@ def test_positive_claim_guard_rejects_unsupported_variants(claim: str) -> None:
         "No educator usability review has occurred.",
         "COGNISECT has no classroom adoption.",
         "This is not a generalized accuracy estimate.",
+        "This was not used in 20 classrooms.",
+        "The tool does not save teachers 10 minutes.",
+        "The tool does not raise learner scores.",
+        "The tool does not diagnose misconceptions.",
+        "No educator validation occurred.",
+        "The tool was not educator-validated.",
+        "Inspect the separation, not a confidence score.",
     ],
 )
 def test_positive_claim_guard_allows_explicit_negative_disclaimers(
