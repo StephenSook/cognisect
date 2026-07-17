@@ -79,7 +79,7 @@ means no advisory match at audit time, not proof that every dependency is safe.
 ## Production stress evidence
 
 The sanitized gate ran against public SHA
-`c66ef0cd84ed781cd441d3c5ad81e09a22aafe9d`:
+`6a7d848b9444a63b4ed62571e55b735c644b39ed`:
 
 | Invariant | Result |
 | --- | ---: |
