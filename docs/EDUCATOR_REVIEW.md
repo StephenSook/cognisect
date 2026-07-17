@@ -7,10 +7,9 @@ session record say otherwise. Students and real learner records are not needed.
 ## Current execution status
 
 As of 2026-07-17, the consented usability session has **not been conducted**.
-Research and draft-only outreach materials were prepared privately, but no
-message was sent and no educator response or approval was recorded. The release
-therefore makes no pilot, educator-review, validation, adoption, or usability
-result claim.
+Three outreach messages were sent by the project owner. No educator response,
+consent, session, or approval has been recorded. The release therefore makes no
+pilot, educator-review, validation, adoption, or usability result claim.
 
 ## Participant and consent
 
