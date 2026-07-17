@@ -74,7 +74,8 @@ class _CallResult:
     cause: AnalyzerAbstentionCause | None
 
 
-def _is_refusal(response: object) -> bool:
+def response_is_refusal(response: object) -> bool:
+    """Return whether the provider response contains a refusal part."""
     for item in getattr(response, "output", ()):
         if getattr(item, "type", None) != "message":
             continue
@@ -83,7 +84,7 @@ def _is_refusal(response: object) -> bool:
     return False
 
 
-def _single_output_text(response: object) -> str | None:
+def single_output_text(response: object) -> str | None:
     """Return one assistant output text, rejecting missing or ambiguous output."""
     output_texts: list[str] = []
     for item in getattr(response, "output", ()):
@@ -98,7 +99,8 @@ def _single_output_text(response: object) -> str | None:
     return output_texts[0] if len(output_texts) == 1 else None
 
 
-def _schema_name(text_format: type[BaseModel]) -> str:
+def response_schema_name(text_format: type[BaseModel]) -> str:
+    """Return the stable provider-facing schema name for a response contract."""
     names = {
         NormalizedEvidenceV1: "normalized_evidence_v1",
         TerraAnalysisV1: "terra_analysis_v1",
@@ -107,7 +109,7 @@ def _schema_name(text_format: type[BaseModel]) -> str:
     return names[text_format]
 
 
-def _provider_json_schema(text_format: type[BaseModel]) -> dict[str, object]:
+def provider_json_schema(text_format: type[BaseModel]) -> dict[str, object]:
     """Remove unsupported provider keywords without weakening runtime validation."""
 
     def sanitize(value: object) -> object:
@@ -124,7 +126,8 @@ def _provider_json_schema(text_format: type[BaseModel]) -> dict[str, object]:
     return cast("dict[str, object]", sanitize(text_format.model_json_schema()))
 
 
-def _usage_from_response(response: object) -> TokenUsage:
+def usage_from_response(response: object) -> TokenUsage:
+    """Normalize provider usage metadata into the checked pricing contract."""
     usage = getattr(response, "usage", None)
     if usage is None:
         return TokenUsage(input_tokens=0, output_tokens=0)
@@ -318,8 +321,8 @@ class ResponsesAnalyzer:
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": _schema_name(text_format),
-                        "schema": _provider_json_schema(text_format),
+                        "name": response_schema_name(text_format),
+                        "schema": provider_json_schema(text_format),
                         "strict": True,
                     }
                 },
@@ -362,7 +365,7 @@ class ResponsesAnalyzer:
 
         latency_ms = max(0, round((self._monotonic() - started) * 1_000))
         try:
-            usage = _usage_from_response(response)
+            usage = usage_from_response(response)
             returned_model = str(response.model)
             request_id = str(response.id)
         except Exception:  # noqa: BLE001 - malformed metadata is a typed final outcome.
@@ -419,7 +422,7 @@ class ResponsesAnalyzer:
             requested_model_id=requested_model,
             returned_model_id=returned_model,
             request_id=request_id,
-            status="refused" if _is_refusal(response) else "completed",
+            status="refused" if response_is_refusal(response) else "completed",
             latency_ms=latency_ms,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
@@ -431,11 +434,11 @@ class ResponsesAnalyzer:
             route_version=ROUTE_VERSION,
             prompt_cache_key=prompt.prompt_cache_key,
         )
-        if _is_refusal(response):
+        if response_is_refusal(response):
             result = _CallResult(parsed=None, telemetry=telemetry, cause="refusal")
             await self._journal.finalize(plan, telemetry, None)
             return result
-        output_text = _single_output_text(response)
+        output_text = single_output_text(response)
         if output_text is None:
             malformed = replace(telemetry, status="malformed_output")
             result = _CallResult(

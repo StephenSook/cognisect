@@ -44,6 +44,7 @@ jobs:
       - run: uv run python scripts/check_public_repo.py
       - run: uv run python scripts/validate_provenance.py
       - run: uv run python scripts/run_offline_evaluation.py --check
+      - run: uv run python scripts/run_model_benchmark.py --check
       - run: uv run python scripts/generate_dependency_licenses.py --check
       - run: npm audit --audit-level=high
         working-directory: frontend
