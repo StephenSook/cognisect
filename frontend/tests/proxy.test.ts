@@ -2,7 +2,11 @@ import { createHmac } from "node:crypto";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { forwardBackendRequest, resolveBackendUrl } from "@/lib/backend-proxy";
+import {
+  forwardBackendRequest,
+  resolveBackendUrl,
+  resolveProxySigningSecret,
+} from "@/lib/backend-proxy";
 
 describe("same-origin backend proxy", () => {
   it("forwards initial bootstrap with an authenticated privacy-safe Vercel client bucket", async () => {
@@ -312,23 +316,41 @@ describe("same-origin backend proxy", () => {
     );
   });
 
-  it("requires an explicit bounded proxy signing secret in production", async () => {
-    const proxyModule = await import("@/lib/backend-proxy");
-    const resolver = Reflect.get(proxyModule, "resolveProxySigningSecret");
-    expect(typeof resolver).toBe("function");
-    expect(() => resolver(undefined, "production")).toThrow(
+  it("requires an explicit proxy signing secret in production", () => {
+    expect(() => resolveProxySigningSecret(undefined, "production")).toThrow(
       "COGNISECT_PROXY_SIGNING_SECRET",
     );
-    expect(() => resolver("short", "production")).toThrow(
-      "COGNISECT_PROXY_SIGNING_SECRET",
+    expect(resolveProxySigningSecret(undefined, "development")).toBeUndefined();
+  });
+
+  it.each([
+    ["whitespace-only reviewer reproduction", " ".repeat(32)],
+    ["trim-short reviewer reproduction", ` ${"p".repeat(30)} `],
+    ["byte-order mark", `\ufeff${"A".repeat(32)}`],
+    ["nul control", `${"A".repeat(31)}\0`],
+    ["internal space", `${"A".repeat(16)} ${"A".repeat(16)}`],
+    ["internal tab", `${"A".repeat(16)}\t${"A".repeat(16)}`],
+    ["internal newline", `${"A".repeat(16)}\n${"A".repeat(16)}`],
+    ["non-ascii emoji", `${"A".repeat(31)}😀`],
+    ["period punctuation", `${"A".repeat(31)}.`],
+    ["plus punctuation", `${"A".repeat(31)}+`],
+    ["slash punctuation", `${"A".repeat(31)}/`],
+    ["under minimum", "A".repeat(31)],
+    ["over maximum", "A".repeat(129)],
+    ["placeholder", `placeholder${"A".repeat(21)}`],
+  ])("rejects %s in the proxy signing secret", (caseName, invalidSecret) => {
+    expect(
+      () => resolveProxySigningSecret(invalidSecret, "production"),
+      caseName,
+    ).toThrow("COGNISECT_PROXY_SIGNING_SECRET");
+  });
+
+  it.each([
+    ["minimum", `Aa0_-${"Z".repeat(27)}`],
+    ["maximum", "A".repeat(128)],
+  ])("accepts the %s base64url boundary unchanged", (caseName, validSecret) => {
+    expect(resolveProxySigningSecret(validSecret, "production"), caseName).toBe(
+      validSecret,
     );
-    expect(() => resolver(" ".repeat(32), "production")).toThrow(
-      "COGNISECT_PROXY_SIGNING_SECRET",
-    );
-    expect(() => resolver(` ${"p".repeat(30)} `, "production")).toThrow(
-      "COGNISECT_PROXY_SIGNING_SECRET",
-    );
-    expect(resolver("p".repeat(32), "production")).toBe("p".repeat(32));
-    expect(resolver(undefined, "development")).toBeUndefined();
   });
 });

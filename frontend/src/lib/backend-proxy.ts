@@ -112,12 +112,11 @@ export function resolveProxySigningSecret(
   if (configuredSecret === undefined && nodeEnvironment !== "production") return undefined;
   if (
     configuredSecret === undefined ||
-    configuredSecret !== configuredSecret.trim() ||
-    configuredSecret.length < 32 ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(configuredSecret) ||
     /replace-with|placeholder|change-?me/i.test(configuredSecret)
   ) {
     throw new Error(
-      "COGNISECT_PROXY_SIGNING_SECRET must be explicit and at least 32 characters in production",
+      "COGNISECT_PROXY_SIGNING_SECRET must be 32-128 base64url ASCII characters in production",
     );
   }
   return configuredSecret;

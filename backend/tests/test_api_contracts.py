@@ -88,22 +88,56 @@ def test_production_requires_proxy_signing_secret_without_silent_fallback() -> N
 
 
 @pytest.mark.parametrize(
-    "ambiguous_secret",
-    [" " * 32, f" {'p' * 30} "],
+    ("case", "invalid_secret"),
+    [
+        ("whitespace-only reviewer reproduction", " " * 32),
+        ("trim-short reviewer reproduction", f" {'p' * 30} "),
+        ("byte-order mark", "\ufeff" + ("A" * 32)),
+        ("nul control", ("A" * 31) + "\0"),
+        ("internal space", ("A" * 16) + " " + ("A" * 16)),
+        ("internal tab", ("A" * 16) + "\t" + ("A" * 16)),
+        ("internal newline", ("A" * 16) + "\n" + ("A" * 16)),
+        ("non-ascii emoji", ("A" * 31) + "😀"),
+        ("period punctuation", ("A" * 31) + "."),
+        ("plus punctuation", ("A" * 31) + "+"),
+        ("slash punctuation", ("A" * 31) + "/"),
+        ("under minimum", "A" * 31),
+        ("over maximum", "A" * 129),
+        ("placeholder", "placeholder" + ("A" * 21)),
+    ],
 )
-def test_proxy_signing_secret_rejects_whitespace_ambiguous_values(
-    ambiguous_secret: str,
+def test_proxy_signing_secret_rejects_non_base64url_or_ambiguous_values(
+    case: str,
+    invalid_secret: str,
 ) -> None:
-    assert len(ambiguous_secret) == 32
+    assert case
 
     with pytest.raises(ValidationError, match="PROXY_SIGNING_SECRET"):
         Settings(
             **{
                 **VALID_ENV,
                 "app_env": "production",
-                "proxy_signing_secret": ambiguous_secret,
+                "proxy_signing_secret": invalid_secret,
             }
         )
+
+
+@pytest.mark.parametrize(
+    "valid_secret",
+    ["Aa0_-" + ("Z" * 27), "A" * 128],
+)
+def test_proxy_signing_secret_accepts_base64url_boundaries_unchanged(
+    valid_secret: str,
+) -> None:
+    settings = Settings(
+        **{
+            **VALID_ENV,
+            "app_env": "production",
+            "proxy_signing_secret": valid_secret,
+        }
+    )
+
+    assert settings.proxy_signing_secret.get_secret_value() == valid_secret
 
 
 @pytest.mark.parametrize(

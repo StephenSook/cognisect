@@ -149,10 +149,12 @@ npm ci
 COGNISECT_BACKEND_URL=http://127.0.0.1:8000 npm run dev
 ```
 
-Replace the two pepper placeholders with different random values of at least 32
-characters. Set `OPENAI_API_KEY` to run the production analyzer. Browser requests
-use the same-origin frontend proxy; learner links should be tested in a separate
-browser context.
+Replace the three pepper placeholders with distinct random values of at least 32
+characters. Generate the shared backend/frontend proxy credential with
+`openssl rand -hex 32` and copy its exact unmodified output to
+`PROXY_SIGNING_SECRET` and `COGNISECT_PROXY_SIGNING_SECRET`. Set `OPENAI_API_KEY`
+to run the production analyzer. Browser requests use the same-origin frontend
+proxy; learner links should be tested in a separate browser context.
 
 ## Verification
 

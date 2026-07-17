@@ -32,11 +32,13 @@ root-directory guidance](https://vercel.com/docs/monorepos).
    must all be distinct and retained outside the database.
 3. Import the GitHub repository into a dedicated Vercel project and set Root
    Directory to `frontend`; enable source files outside that directory.
-4. Generate a fourth, distinct secret of at least 32 random characters. Set the
-   same value as `PROXY_SIGNING_SECRET` in Render and
+4. Run `openssl rand -hex 32` once to generate a fourth, distinct secret. Its
+   64-character lowercase-hex output satisfies the required unnormalized
+   base64url ASCII contract (`[A-Za-z0-9_-]{32,128}`). Set that exact output as
+   `PROXY_SIGNING_SECRET` in Render and
    `COGNISECT_PROXY_SIGNING_SECRET` in Vercel. It is a server-only shared proxy
-   credential: never use a `NEXT_PUBLIC_*` variable, and rotate both copies
-   together.
+   credential: do not add quotes or whitespace, never use a `NEXT_PUBLIC_*`
+   variable, and rotate both copies together.
 5. Set `COGNISECT_BACKEND_URL` to the Render HTTPS origin and
    `COGNISECT_FRONTEND_ENV=production` in Vercel. Do not expose a persistence
    pepper or the OpenAI key to Vercel or to `NEXT_PUBLIC_*` variables.

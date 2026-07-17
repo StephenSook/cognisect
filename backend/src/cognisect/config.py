@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PLACEHOLDER_PARTS = ("replace-with", "placeholder", "change-me", "changeme")
 MIN_SECRET_LENGTH = 32
+PROXY_SIGNING_SECRET_PATTERN = re.compile(r"[A-Za-z0-9_-]{32,128}")
 
 
 class Settings(BaseSettings):
@@ -92,15 +93,15 @@ class Settings(BaseSettings):
     @field_validator("proxy_signing_secret")
     @classmethod
     def proxy_secret_is_empty_or_explicit_and_long(cls, value: SecretStr) -> SecretStr:
-        """Permit no proxy only outside production; otherwise reject weak values."""
+        """Require an unnormalized bounded base64url-ASCII proxy credential."""
         raw = value.get_secret_value()
         if not raw:
             return value
         lowered = raw.lower()
-        if raw != raw.strip() or len(raw) < MIN_SECRET_LENGTH or any(
+        if PROXY_SIGNING_SECRET_PATTERN.fullmatch(raw) is None or any(
             part in lowered for part in _PLACEHOLDER_PARTS
         ):
-            msg = "PROXY_SIGNING_SECRET must be explicit and at least 32 characters"
+            msg = "PROXY_SIGNING_SECRET must be 32-128 base64url ASCII characters"
             raise ValueError(msg)
         return value
 
