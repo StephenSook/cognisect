@@ -21,6 +21,7 @@ export function workflowFixture(
     prompt_version: "analysis_prompt.v2",
     compiler_version: "counterexample_compiler.v1",
     model_snapshot: "gpt-5.6-terra-2026-07-16",
+    model_response_id: "resp_public_metadata",
     model_request_id: "req_public_metadata",
     learner_response_url: null,
     created_at: "2026-07-16T10:00:00Z",

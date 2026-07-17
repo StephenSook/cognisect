@@ -66,6 +66,7 @@ class ApiAnalyzer:
             ),
             model_id="test-model",
             model_snapshot="test-model-2026-07-16",
+            response_id="resp_test_metadata",
             request_id="req_test_metadata",
         )
 
@@ -168,7 +169,7 @@ async def test_readiness_fails_closed_on_alembic_head_mismatch(client, db_engine
     finally:
         async with db_engine.begin() as connection:
             await connection.execute(
-                text("UPDATE alembic_version SET version_num = 'c5d7e9f1a204'")
+                text("UPDATE alembic_version SET version_num = 'a5d3e9b7c421'")
             )
 
 
@@ -248,6 +249,7 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
         "prompt_version",
         "compiler_version",
         "model_snapshot",
+        "model_response_id",
         "model_request_id",
         "created_at",
         "updated_at",
@@ -258,6 +260,8 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
         "deterministic_evidence",
         "review_result",
     }.issubset(teacher)
+    assert teacher["model_response_id"] == "resp_test_metadata"
+    assert teacher["model_request_id"] == "req_test_metadata"
     assert teacher["source_tier"] == "custom"
     assert [item["rank"] for item in teacher["accepted_hypotheses"]] == [1, 2]
     assert teacher["compiled_probe"]["original_problem"] == {"a": -3, "b": 5}

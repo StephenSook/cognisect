@@ -72,7 +72,7 @@ verifying a production release.
 1. Merge only after all six GitHub checks succeed.
 2. Record the merged SHA. Query check runs and require six completed successes.
 3. Confirm startup migration and the `/ready` Render check succeed. `/ready`
-   requires database access and exact Alembic head `c5d7e9f1a204`; `/health`
+   requires database access and exact Alembic head `a5d3e9b7c421`; `/health`
    remains the backward-compatible database liveness response.
 4. Confirm Vercel and Render display the same intended source SHA.
 5. From a logged-out teacher browser, create and analyze a de-identified case,

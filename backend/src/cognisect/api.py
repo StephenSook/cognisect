@@ -91,7 +91,7 @@ IdempotencyKey = Annotated[
 ]
 OwnerCookie = Annotated[str | None, Cookie(alias=OWNER_COOKIE_NAME)]
 OWNER_SECRET_PATTERN = re.compile(r"^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$")
-EXPECTED_ALEMBIC_HEAD = "c5d7e9f1a204"
+EXPECTED_ALEMBIC_HEAD = "a5d3e9b7c421"
 RATE_LIMIT_WINDOW_SECONDS = 3_600
 RATE_LIMIT_RESPONSE = {
     "model": ErrorResponse,

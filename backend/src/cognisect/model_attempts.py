@@ -106,6 +106,7 @@ def _telemetry(record: ModelCallRecord) -> ModelCallTelemetry:
     return ModelCallTelemetry(
         requested_model_id=record.requested_model_id,
         returned_model_id=record.returned_model_id,
+        response_id=record.response_id,
         request_id=record.request_id,
         status=record.status,
         latency_ms=record.latency_ms,
@@ -175,6 +176,7 @@ class PostgresAttemptJournal:
                     model_snapshot=None,
                     requested_model_id=plan.requested_model_id,
                     returned_model_id=None,
+                    response_id=None,
                     request_id=None,
                     attempt_ordinal=plan.attempt_ordinal,
                     purpose=plan.purpose,
@@ -262,6 +264,7 @@ class PostgresAttemptJournal:
                 return
             record.model_snapshot = telemetry.returned_model_id
             record.returned_model_id = telemetry.returned_model_id
+            record.response_id = telemetry.response_id
             record.request_id = telemetry.request_id
             record.status = telemetry.status
             record.latency_ms = telemetry.latency_ms

@@ -159,6 +159,7 @@ class WorkflowRecord(Timestamped, Base):
         String(48), default=COMPILER_VERSION, nullable=False
     )
     model_snapshot: Mapped[str | None] = mapped_column(String(120))
+    model_response_id: Mapped[str | None] = mapped_column(String(160))
     model_request_id: Mapped[str | None] = mapped_column(String(160))
 
     case: Mapped[CaseRecord] = relationship(back_populates="workflows")
@@ -384,6 +385,7 @@ class ModelCallRecord(Base):
     model_snapshot: Mapped[str | None] = mapped_column(String(120))
     requested_model_id: Mapped[str] = mapped_column(String(120), nullable=False)
     returned_model_id: Mapped[str | None] = mapped_column(String(120))
+    response_id: Mapped[str | None] = mapped_column(String(160))
     request_id: Mapped[str | None] = mapped_column(String(160))
     attempt_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     purpose: Mapped[str] = mapped_column(String(16), nullable=False)

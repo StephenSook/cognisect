@@ -40,6 +40,7 @@ def _workflow_with_forbidden_sentinels() -> WorkflowResponse:
         prompt_version="analysis_prompt.v2",
         compiler_version="counterexample_compiler.v1",
         model_snapshot="FORBIDDEN-PROVIDER-METADATA-62af",
+        model_response_id="FORBIDDEN-PROVIDER-RESPONSE-983a",
         model_request_id="FORBIDDEN-PROVIDER-REQUEST-b1d3",
         learner_response_url=f"https://example.test/respond/{capability}",
         created_at=moment,
@@ -161,6 +162,7 @@ def test_receipt_is_explicit_allowlist_with_proof_stable_audit_and_canonical_has
         "FORBIDDEN-EDITED-PROSE-916c",
         "FORBIDDEN-TEACHER-NOTE-40da",
         "FORBIDDEN-PROVIDER-METADATA-62af",
+        "FORBIDDEN-PROVIDER-RESPONSE-983a",
         "FORBIDDEN-PROVIDER-REQUEST-b1d3",
     ):
         assert forbidden not in serialized

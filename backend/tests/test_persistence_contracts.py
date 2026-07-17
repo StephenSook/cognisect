@@ -204,6 +204,131 @@ def test_model_attempt_journal_has_stable_content_free_identity_and_staged_resul
 
 
 @pytest.mark.postgres
+async def test_model_identity_migration_preserves_historical_response_ids(
+    db_engine, db_session, monkeypatch
+) -> None:
+    del db_session
+    owner_id = UUID("00000000-0000-4000-8000-000000000401")
+    case_id = UUID("00000000-0000-4000-8000-000000000402")
+    workflow_id = UUID("00000000-0000-4000-8000-000000000403")
+    call_id = UUID("00000000-0000-4000-8000-000000000404")
+    thread_id = UUID("00000000-0000-4000-8000-000000000405")
+    alembic_config = Config("alembic.ini")
+    monkeypatch.setenv(
+        "COGNISECT_DATABASE_URL",
+        db_engine.url.render_as_string(hide_password=False),
+    )
+
+    async with db_engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO owners (id, secret_hash, created_at) "
+                "VALUES (:id, :secret_hash, now())"
+            ),
+            {"id": owner_id, "secret_hash": "4" * 64},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO cases "
+                "(id, owner_id, source_tier, original_a, original_b, observed_work, "
+                "deidentified_attestation, created_at, updated_at) VALUES "
+                "(:id, :owner_id, 'educator_authored', -3, 5, 'historical fixture', "
+                "false, now(), now())"
+            ),
+            {"id": case_id, "owner_id": owner_id},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO workflows "
+                "(id, case_id, owner_id, thread_id, state, version, schema_version, "
+                "registry_version, prompt_version, compiler_version, model_snapshot, "
+                "model_response_id, model_request_id, created_at, updated_at) VALUES "
+                "(:id, :case_id, :owner_id, :thread_id, 'ABSTAINED', 1, 'workflow.v1', "
+                "'rule_registry.v1', 'analysis_prompt.v2', 'counterexample_compiler.v1', "
+                "'gpt-5.6-terra', 'resp_workflow_historical', 'req_discarded_on_downgrade', "
+                "now(), now())"
+            ),
+            {
+                "id": workflow_id,
+                "case_id": case_id,
+                "owner_id": owner_id,
+                "thread_id": thread_id,
+            },
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO model_calls "
+                "(id, case_id, workflow_id, model_id, model_snapshot, requested_model_id, "
+                "returned_model_id, response_id, request_id, attempt_ordinal, purpose, "
+                "repair, client_request_id, status, latency_ms, input_tokens, output_tokens, "
+                "reasoning_tokens, cached_input_tokens, cache_write_input_tokens, cost_usd, "
+                "prompt_hash, route_version, prompt_cache_key, finalized_at, created_at) "
+                "VALUES (:id, :case_id, :workflow_id, 'gpt-5.6-terra', 'gpt-5.6-terra', "
+                "'gpt-5.6-terra', 'gpt-5.6-terra', 'resp_call_historical', "
+                "'req_discarded_on_downgrade', 1, 'terra', false, 'client-historical', "
+                "'completed', 1, 1, 1, 0, 0, 0, 0.000001, :prompt_hash, "
+                "'model_route.v1', 'prompt-cache', now(), now())"
+            ),
+            {
+                "id": call_id,
+                "case_id": case_id,
+                "workflow_id": workflow_id,
+                "prompt_hash": "5" * 64,
+            },
+        )
+
+    await db_engine.dispose()
+    command.downgrade(alembic_config, "c5d7e9f1a204")
+    try:
+        async with db_engine.connect() as connection:
+            legacy_workflow = (
+                await connection.execute(
+                    text("SELECT model_request_id FROM workflows WHERE id = :id"),
+                    {"id": workflow_id},
+                )
+            ).one()
+            legacy_call = (
+                await connection.execute(
+                    text("SELECT request_id FROM model_calls WHERE id = :id"),
+                    {"id": call_id},
+                )
+            ).one()
+        assert legacy_workflow.model_request_id == "resp_workflow_historical"
+        assert legacy_call.request_id == "resp_call_historical"
+
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.connect() as connection:
+            corrected_workflow = (
+                await connection.execute(
+                    text(
+                        "SELECT model_response_id, model_request_id "
+                        "FROM workflows WHERE id = :id"
+                    ),
+                    {"id": workflow_id},
+                )
+            ).one()
+            corrected_call = (
+                await connection.execute(
+                    text("SELECT response_id, request_id FROM model_calls WHERE id = :id"),
+                    {"id": call_id},
+                )
+            ).one()
+        assert corrected_workflow.model_response_id == "resp_workflow_historical"
+        assert corrected_workflow.model_request_id is None
+        assert corrected_call.response_id == "resp_call_historical"
+        assert corrected_call.request_id is None
+    finally:
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text("DELETE FROM owners WHERE id = :id"),
+                {"id": owner_id},
+            )
+
+
+@pytest.mark.postgres
 async def test_transition_uses_compare_and_swap_and_appends_one_event(db_session, seeded_workflow):
     workflow, owner = seeded_workflow
     workflow_id = workflow.id

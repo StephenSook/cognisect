@@ -208,6 +208,13 @@ def calculate_cost_usd(model_id: str, usage: TokenUsage) -> Decimal:
     return cost.quantize(Decimal("0.000001"))
 
 
+def returned_model_is_allowed(requested: str, returned: str) -> bool:
+    """Allow only the frozen requested model or one of its provider snapshots."""
+    return bool(returned) and (
+        returned == requested or returned.startswith(f"{requested}-")
+    )
+
+
 def initial_route(case: CreateCaseRequest) -> tuple[str, ...]:
     """Choose Luna only when approved source tiers genuinely require extraction."""
     already_structured = False

@@ -260,6 +260,7 @@ class WorkflowResponse(StrictContractModel):
     prompt_version: str
     compiler_version: str
     model_snapshot: str | None
+    model_response_id: str | None
     model_request_id: str | None
     learner_response_url: str | None
     created_at: datetime

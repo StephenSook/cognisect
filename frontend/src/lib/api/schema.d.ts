@@ -678,6 +678,8 @@ export interface components {
             learner_response_url: string | null;
             /** Model Request Id */
             model_request_id: string | null;
+            /** Model Response Id */
+            model_response_id: string | null;
             /** Model Snapshot */
             model_snapshot: string | null;
             /** Prompt Version */

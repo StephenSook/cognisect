@@ -164,6 +164,7 @@ class ModelCallTelemetry:
     prompt_hash: str
     route_version: str
     prompt_cache_key: str
+    response_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +174,7 @@ class AnalyzerResult:
     mapping: RuleMappingV1 | None
     model_id: str
     model_snapshot: str | None = None
+    response_id: str | None = None
     request_id: str | None = None
     model_calls: tuple[ModelCallTelemetry, ...] = ()
     abstention_cause: AnalyzerAbstentionCause | None = None
@@ -753,6 +755,7 @@ class WorkflowService:
                             model_snapshot=call.returned_model_id,
                             requested_model_id=call.requested_model_id,
                             returned_model_id=call.returned_model_id,
+                            response_id=call.response_id,
                             request_id=call.request_id,
                             attempt_ordinal=attempt_ordinal,
                             purpose="legacy",
@@ -786,6 +789,7 @@ class WorkflowService:
                         model_snapshot=analyzer_result.model_snapshot,
                         requested_model_id=analyzer_result.model_id,
                         returned_model_id=analyzer_result.model_snapshot,
+                        response_id=analyzer_result.response_id,
                         request_id=analyzer_result.request_id,
                         attempt_ordinal=1,
                         purpose="legacy",
@@ -810,6 +814,7 @@ class WorkflowService:
                     )
                 )
             workflow.model_snapshot = analyzer_result.model_snapshot
+            workflow.model_response_id = analyzer_result.response_id
             workflow.model_request_id = analyzer_result.request_id
             if analyzer_result.abstention_cause is not None:
                 updated = await transition_workflow(
@@ -1492,6 +1497,7 @@ class WorkflowService:
             prompt_version=workflow.prompt_version,
             compiler_version=workflow.compiler_version,
             model_snapshot=workflow.model_snapshot,
+            model_response_id=workflow.model_response_id,
             model_request_id=workflow.model_request_id,
             learner_response_url=learner_response_url,
             created_at=workflow.created_at,

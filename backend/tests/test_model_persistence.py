@@ -85,6 +85,7 @@ def test_model_call_record_has_complete_content_free_telemetry_columns() -> None
     assert {
         "requested_model_id",
         "returned_model_id",
+        "response_id",
         "request_id",
         "status",
         "latency_ms",
@@ -98,6 +99,9 @@ def test_model_call_record_has_complete_content_free_telemetry_columns() -> None
         "route_version",
         "prompt_cache_key",
     } <= set(inspect(ModelCallRecord).columns.keys())
+    assert {"model_response_id", "model_request_id"} <= set(
+        inspect(WorkflowRecord).columns.keys()
+    )
     assert {
         "prompt",
         "response",
@@ -113,13 +117,15 @@ class RefusingAnalyzer:
             mapping=None,
             model_id="gpt-5.6-terra",
             model_snapshot="gpt-5.6-terra",
-            request_id="resp_refused",
+            response_id="resp_refused",
+            request_id="req_refused",
             abstention_cause="refusal",
             model_calls=(
                 ModelCallTelemetry(
                     requested_model_id="gpt-5.6-terra",
                     returned_model_id="gpt-5.6-terra",
-                    request_id="resp_refused",
+                    response_id="resp_refused",
+                    request_id="req_refused",
                     status="refused",
                     latency_ms=17,
                     input_tokens=100,
@@ -170,6 +176,10 @@ async def test_typed_model_abstention_persists_all_calls_and_abstains_not_fails(
     assert len(calls) == 1
     assert calls[0].requested_model_id == "gpt-5.6-terra"
     assert calls[0].returned_model_id == "gpt-5.6-terra"
+    assert calls[0].response_id == "resp_refused"
+    assert calls[0].request_id == "req_refused"
+    assert workflow.model_response_id == "resp_refused"
+    assert workflow.model_request_id == "req_refused"
     assert calls[0].reasoning_tokens == 0
     assert calls[0].prompt_hash == "a" * 64
 
@@ -219,6 +229,7 @@ class OneTerraResponses:
         )
         return SimpleNamespace(
             id="resp_crash_gap",
+            _request_id="req_crash_gap",
             model="gpt-5.6-terra",
             output=[
                 SimpleNamespace(
@@ -554,6 +565,8 @@ async def test_analysis_recovers_finalized_artifact_after_process_crash_without_
         )
     )
     assert discarded.mapping is not None
+    assert discarded.response_id == "resp_crash_gap"
+    assert discarded.request_id == "req_crash_gap"
     assert provider.responses.calls == 1
 
     recovered_provider = ForbiddenClient()
@@ -574,8 +587,14 @@ async def test_analysis_recovers_finalized_artifact_after_process_crash_without_
     )
 
     assert recovered.state == WorkflowState.PROBE_READY
+    assert recovered.model_response_id == "resp_crash_gap"
+    assert recovered.model_request_id == "req_crash_gap"
     assert recovered_provider.responses.calls == []
     async with sessions() as session:
+        persisted_call = await session.scalar(select(ModelCallRecord))
+        assert persisted_call is not None
+        assert persisted_call.response_id == "resp_crash_gap"
+        assert persisted_call.request_id == "req_crash_gap"
         assert await session.scalar(select(func.count(ModelCallRecord.id))) == 1
         assert await session.scalar(select(func.count(AnalysisStepResultRecord.id))) == 1
 
@@ -640,6 +659,7 @@ async def test_task3_cost_preflight_persists_truthful_nonlegacy_telemetry(
         call = await session.scalar(select(ModelCallRecord))
     assert call is not None
     assert call.status == "cost_blocked"
+    assert call.response_id is None
     assert call.request_id is None
     assert call.returned_model_id is None
     assert call.route_version == "model_route.v1"

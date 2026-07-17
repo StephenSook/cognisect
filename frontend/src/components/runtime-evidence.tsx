@@ -38,7 +38,8 @@ export function RuntimeEvidence({
           <dl className="runtime-grid mono">
             <div><dt>Source tier</dt><dd>{workflow.source_tier}</dd></div>
             <div><dt>Model snapshot</dt><dd>{workflow.model_snapshot ?? "Not recorded"}</dd></div>
-            <div><dt>Model request ID</dt><dd>{workflow.model_request_id ?? "Not recorded"}</dd></div>
+            <div><dt>Model response ID</dt><dd>{workflow.model_response_id ?? "Not recorded"}</dd></div>
+            <div><dt>Provider request ID</dt><dd>{workflow.model_request_id ?? "Not recorded"}</dd></div>
             <div><dt>Prompt version</dt><dd>{workflow.prompt_version}</dd></div>
           </dl>
         </section>

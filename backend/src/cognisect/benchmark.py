@@ -23,7 +23,13 @@ from cognisect.model_analyzer import (
     single_output_text,
     usage_from_response,
 )
-from cognisect.model_policy import MODEL_IDS, TerraAnalysisV1, calculate_cost_usd
+from cognisect.model_policy import (
+    MODEL_IDS,
+    TerraAnalysisV1,
+    TokenUsage,
+    calculate_cost_usd,
+    returned_model_is_allowed,
+)
 from cognisect.models import RuleMappingV1, TemplateId
 from cognisect.prompts.analysis_v1 import allowed_evidence_refs, build_prompt
 
@@ -50,6 +56,7 @@ class BenchmarkModelResult:
     schema_valid: bool
     requested_model_id: str
     returned_model_id: str | None
+    response_id: str | None
     request_id: str | None
     latency_ms: int
     input_tokens: int
@@ -406,6 +413,7 @@ def build_live_benchmark_report(  # noqa: PLR0915 - one explicit report assembly
                 "terra": {
                     "status": "completed" if terra.mapping is not None else "abstained",
                     "predicted_template_ids": list(item.predicted or ()),
+                    "response_id": terra.response_id,
                     "request_id": terra.request_id,
                     "prompt_hash": terra.prompt_hash,
                     "failure": terra.failure,
@@ -417,6 +425,7 @@ def build_live_benchmark_report(  # noqa: PLR0915 - one explicit report assembly
                         if sol.mapping is not None
                         else []
                     ),
+                    "response_id": sol.response_id,
                     "request_id": sol.request_id,
                     "prompt_hash": sol.prompt_hash,
                     "failure": sol.failure,
@@ -456,6 +465,7 @@ def build_live_benchmark_report(  # noqa: PLR0915 - one explicit report assembly
                         "purpose": result.purpose,
                         "requested_model_id": result.requested_model_id,
                         "returned_model_id": result.returned_model_id,
+                        "response_id": result.response_id,
                         "request_id": result.request_id,
                         "latency_ms": result.latency_ms,
                         "input_tokens": result.input_tokens,
@@ -555,19 +565,45 @@ async def _call_model_once(
         extra_headers={"X-Client-Request-Id": client_request_id},
     )
     latency_ms = max(0, round((monotonic() - started) * 1_000))
-    returned_model = str(getattr(response, "model", ""))
-    if returned_model != requested_model:
-        msg = "returned model did not match the frozen requested model"
-        raise RuntimeError(msg)
-    request_id = str(getattr(response, "id", ""))
-    if not request_id:
-        msg = "provider response omitted its request ID"
-        raise RuntimeError(msg)
-    usage = usage_from_response(response)
-    cost = calculate_cost_usd(requested_model, usage)
+    returned_model_value = getattr(response, "model", None)
+    response_id_value = getattr(response, "id", None)
+    request_id_value = getattr(response, "_request_id", None)
+    returned_model = (
+        returned_model_value
+        if isinstance(returned_model_value, str) and returned_model_value
+        else None
+    )
+    response_id = (
+        response_id_value
+        if isinstance(response_id_value, str) and response_id_value
+        else None
+    )
+    request_id = (
+        request_id_value
+        if isinstance(request_id_value, str) and request_id_value
+        else None
+    )
+    usage_valid = True
+    try:
+        usage = usage_from_response(response)
+        cost = calculate_cost_usd(requested_model, usage)
+    except (AttributeError, OverflowError, TypeError, ValueError):
+        usage_valid = False
+        usage = TokenUsage(input_tokens=0, output_tokens=0)
+        cost = Decimal()
+    identity_valid = (
+        response_id is not None
+        and returned_model is not None
+        and returned_model_is_allowed(requested_model, returned_model)
+        and (request_id_value is None or request_id is not None)
+        and request_id != response_id
+    )
     mapping: RuleMappingV1 | None
     failure: str | None
-    if response_is_refusal(response):
+    if not usage_valid or not identity_valid:
+        mapping = None
+        failure = "policy_failure"
+    elif response_is_refusal(response):
         mapping = None
         failure = "refusal"
     else:
@@ -581,6 +617,7 @@ async def _call_model_once(
         schema_valid=mapping is not None,
         requested_model_id=requested_model,
         returned_model_id=returned_model,
+        response_id=response_id,
         request_id=request_id,
         latency_ms=latency_ms,
         input_tokens=usage.input_tokens,

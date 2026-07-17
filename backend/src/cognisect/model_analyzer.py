@@ -30,6 +30,7 @@ from cognisect.model_policy import (
     calculate_cost_usd,
     initial_route,
     render_instructional_note,
+    returned_model_is_allowed,
     route_review_flags,
     should_use_sol,
 )
@@ -54,6 +55,7 @@ _T = TypeVar("_T", bound=BaseModel)
 
 class _ParsedResponse(Protocol):
     id: str
+    _request_id: str | None
     model: str
     output: object
     usage: object
@@ -222,6 +224,7 @@ class ResponsesAnalyzer:
             prompt_hash=prompt.full_prompt_sha256,
             route_version=ROUTE_VERSION,
             prompt_cache_key=prompt.prompt_cache_key,
+            response_id=None,
         )
 
     async def _call(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
@@ -364,11 +367,10 @@ class ResponsesAnalyzer:
             return result
 
         latency_ms = max(0, round((self._monotonic() - started) * 1_000))
+        provider_request_id = getattr(response, "_request_id", None)
         try:
             usage = usage_from_response(response)
-            returned_model = str(response.model)
-            request_id = str(response.id)
-        except Exception:  # noqa: BLE001 - malformed metadata is a typed final outcome.
+        except Exception:  # noqa: BLE001 - malformed usage is a typed final outcome.
             telemetry = replace(
                 self._empty_telemetry(
                     requested_model=requested_model,
@@ -377,13 +379,20 @@ class ResponsesAnalyzer:
                     latency_ms=latency_ms,
                 ),
                 returned_model_id=(
-                    str(response.model)
-                    if getattr(response, "model", None) is not None
+                    response.model
+                    if isinstance(getattr(response, "model", None), str)
+                    and response.model
+                    else None
+                ),
+                response_id=(
+                    response.id
+                    if isinstance(getattr(response, "id", None), str)
+                    and response.id
                     else None
                 ),
                 request_id=(
-                    str(response.id)
-                    if getattr(response, "id", None) is not None
+                    provider_request_id
+                    if isinstance(provider_request_id, str) and provider_request_id
                     else None
                 ),
             )
@@ -393,6 +402,24 @@ class ResponsesAnalyzer:
                 telemetry=telemetry,
                 cause="policy_failure",
             )
+        returned_model_value = getattr(response, "model", None)
+        response_id_value = getattr(response, "id", None)
+        request_id_value = provider_request_id
+        returned_model = (
+            returned_model_value
+            if isinstance(returned_model_value, str) and returned_model_value
+            else None
+        )
+        response_id = (
+            response_id_value
+            if isinstance(response_id_value, str) and response_id_value
+            else None
+        )
+        request_id = (
+            request_id_value
+            if isinstance(request_id_value, str) and request_id_value
+            else None
+        )
         try:
             cost_usd = calculate_cost_usd(requested_model, usage)
         except ValueError:
@@ -411,6 +438,7 @@ class ResponsesAnalyzer:
                 prompt_hash=prompt.full_prompt_sha256,
                 route_version=ROUTE_VERSION,
                 prompt_cache_key=prompt.prompt_cache_key,
+                response_id=response_id,
             )
             await self._journal.finalize(plan, telemetry, None)
             return _CallResult(
@@ -418,11 +446,22 @@ class ResponsesAnalyzer:
                 telemetry=telemetry,
                 cause="policy_failure",
             )
+        identity_is_valid = (
+            response_id is not None
+            and returned_model is not None
+            and returned_model_is_allowed(requested_model, returned_model)
+            and (request_id_value is None or request_id is not None)
+            and request_id != response_id
+        )
         telemetry = ModelCallTelemetry(
             requested_model_id=requested_model,
             returned_model_id=returned_model,
             request_id=request_id,
-            status="refused" if response_is_refusal(response) else "completed",
+            status=(
+                "refused"
+                if identity_is_valid and response_is_refusal(response)
+                else "completed" if identity_is_valid else "policy_failure"
+            ),
             latency_ms=latency_ms,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
@@ -433,7 +472,11 @@ class ResponsesAnalyzer:
             prompt_hash=prompt.full_prompt_sha256,
             route_version=ROUTE_VERSION,
             prompt_cache_key=prompt.prompt_cache_key,
+            response_id=response_id,
         )
+        if not identity_is_valid:
+            await self._journal.finalize(plan, telemetry, None)
+            return _CallResult(parsed=None, telemetry=telemetry, cause="policy_failure")
         if response_is_refusal(response):
             result = _CallResult(parsed=None, telemetry=telemetry, cause="refusal")
             await self._journal.finalize(plan, telemetry, None)
@@ -515,6 +558,7 @@ class ResponsesAnalyzer:
             if final is not None
             else fallback_model,
             model_snapshot=final.returned_model_id if final is not None else None,
+            response_id=final.response_id if final is not None else None,
             request_id=final.request_id if final is not None else None,
             model_calls=tuple(calls),
             abstention_cause=cause,

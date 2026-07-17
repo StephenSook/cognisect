@@ -78,6 +78,7 @@ describe("runtime evidence allowlist", () => {
     expect(screen.getByText("rule_registry.v1")).toBeInTheDocument();
     expect(screen.getByText("a".repeat(40))).toBeInTheDocument();
     expect(screen.getByText("educator_authored")).toBeInTheDocument();
+    expect(screen.getByText("resp_public_metadata")).toBeInTheDocument();
     expect(screen.getByText("req_public_metadata")).toBeInTheDocument();
     expect(screen.getByText(/No live-model status is claimed/)).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(privateMarker);

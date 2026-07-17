@@ -63,6 +63,7 @@ class DeterministicFrontendAnalyzer:
             ),
             model_id="deterministic-test-fixture",
             model_snapshot="deterministic-test-fixture",
+            response_id="test-fixture-response",
             request_id="test-fixture-request",
             proposal_draft=(
                 "Multiple ranked hypotheses are consistent with the observed work. "

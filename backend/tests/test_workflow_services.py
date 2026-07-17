@@ -66,6 +66,7 @@ class FakeAnalyzer:
             mapping=self.mapping,
             model_id="test-model",
             model_snapshot="test-model-2026-07-16",
+            response_id="resp_test_public_metadata",
             request_id="req_test_public_metadata",
             proposal_draft=self.proposal_draft,
         )

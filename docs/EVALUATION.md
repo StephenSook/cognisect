@@ -14,8 +14,10 @@ The manifest, provenance ledger, production prompt source, model IDs, route,
 registry, compiler, metrics, and maximum call count were frozen in
 `data/evaluation/protocol.v1.json` before the live run. Gold labels stayed under
 `evaluation_only` and were never serialized into a model prompt. The checked-in
-report records item-level predictions, failures, prompt hashes, request IDs, token
-usage, latency, and cost without recording observed work or credentials.
+report records item-level predictions, failures, prompt hashes, provider response
+IDs, provider request IDs when captured, token usage, latency, and cost without
+recording observed work or credentials. Historical provider request IDs were not
+captured and remain `null`; they are not reconstructed from response IDs.
 
 Verify both deterministic and model reports with:
 

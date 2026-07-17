@@ -1128,6 +1128,17 @@
             ],
             "title": "Model Request Id"
           },
+          "model_response_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Response Id"
+          },
           "model_snapshot": {
             "anyOf": [
               {
@@ -1214,6 +1225,7 @@
           "prompt_version",
           "compiler_version",
           "model_snapshot",
+          "model_response_id",
           "model_request_id",
           "learner_response_url",
           "created_at",

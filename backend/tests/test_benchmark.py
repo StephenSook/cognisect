@@ -148,7 +148,8 @@ def _model_result(
         schema_valid=template_ids is not None,
         requested_model_id=model_id,
         returned_model_id=model_id,
-        request_id=f"resp-{purpose}-{ordinal}",
+        response_id=f"resp-{purpose}-{ordinal}",
+        request_id=f"req-{purpose}-{ordinal}",
         latency_ms=100 + ordinal,
         input_tokens=1_200,
         output_tokens=80,
@@ -197,16 +198,27 @@ def test_live_report_reuses_terra_artifact_for_baselines_and_scores_sol_separate
     assert report["telemetry"]["total_cost_usd"] == "0.012000"
     assert report["telemetry"]["latency_ms"] == {"p50": 106, "p95": 116, "p99": 116}
     assert len(report["items"]) == 6
+    assert report["items"][0]["terra"]["response_id"] == "resp-terra-1"
+    assert report["items"][0]["terra"]["request_id"] == "req-terra-1"
+    assert report["telemetry"]["calls"][0]["response_id"] == "resp-terra-1"
+    assert report["telemetry"]["calls"][0]["request_id"] == "req-terra-1"
     rendered = json.dumps(report)
     assert "observed_work" not in rendered
     assert "learner_token" not in rendered
     assert "api_key" not in rendered
 
 
-def _response(payload: object, *, model: str, request_id: str) -> SimpleNamespace:
+def _response(
+    payload: object,
+    *,
+    model: str,
+    request_id: str,
+    provider_request_id: str | None = "req-provider",
+) -> SimpleNamespace:
     text = payload.model_dump_json() if hasattr(payload, "model_dump_json") else str(payload)
     return SimpleNamespace(
         id=request_id,
+        _request_id=provider_request_id,
         model=model,
         output=[
             SimpleNamespace(
@@ -266,6 +278,8 @@ async def test_live_calls_use_two_exact_frozen_contracts_per_record_without_gold
     assert all(call["text"]["format"]["strict"] is True for call in calls)
     assert all("expected_template_ids" not in call["input"] for call in calls)
     assert all("label_source" not in call["input"] for call in calls)
+    assert all(result.response_id.startswith("resp-") for result in results)
+    assert all(result.request_id == "req-provider" for result in results)
 
 
 @pytest.mark.asyncio
@@ -284,5 +298,46 @@ async def test_live_calls_fail_closed_on_returned_model_mismatch() -> None:
             )
             return _response(payload, model="wrong-model", request_id="resp-wrong")
 
-    with pytest.raises(RuntimeError, match="returned model did not match"):
-        await run_live_model_calls(MANIFEST, client=SimpleNamespace(responses=Responses()))
+    results = await run_live_model_calls(
+        MANIFEST, client=SimpleNamespace(responses=Responses())
+    )
+
+    assert len(results) == 12
+    assert all(result.mapping is None for result in results)
+    assert all(result.failure == "policy_failure" for result in results)
+    assert all(result.response_id == "resp-wrong" for result in results)
+    assert all(result.request_id == "req-provider" for result in results)
+    assert all(result.cost_usd > 0 for result in results)
+
+
+@pytest.mark.asyncio
+async def test_live_calls_accept_dated_provider_snapshots() -> None:
+    class Responses:
+        async def create(self, **kwargs):
+            mapping = _mapping(["add_subtrahend", "absolute_difference"])
+            payload = (
+                TerraAnalysisV1(
+                    schema_version="terra_analysis.v1",
+                    mapping=mapping,
+                    instructional_note_plan=InstructionalNotePlanV1(
+                        schema_version="instructional_note_plan.v1",
+                        observation="multiple_hypotheses_fit_observed_work",
+                        teacher_action="review_compiled_probe",
+                    ),
+                )
+                if kwargs["model"] == "gpt-5.6-terra"
+                else mapping
+            )
+            return _response(
+                payload,
+                model=f"{kwargs['model']}-2026-07-16",
+                request_id=f"resp-{kwargs['model']}",
+                provider_request_id=None,
+            )
+
+    results = await run_live_model_calls(
+        MANIFEST, client=SimpleNamespace(responses=Responses())
+    )
+
+    assert all(result.mapping is not None for result in results)
+    assert all(result.request_id is None for result in results)
