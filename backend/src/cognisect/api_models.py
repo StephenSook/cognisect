@@ -47,8 +47,8 @@ class CreateCaseRequest(StrictContractModel):
     provenance_record_id: ProvenanceRecordId | None = None
 
     @model_validator(mode="after")
-    def custom_content_is_attested(self) -> Self:
-        """Require an affirmative de-identification attestation for custom content."""
+    def attestation_and_provenance_match_source_tier(self) -> Self:
+        """Require custom attestation and restrict provenance to educator-authored cases."""
         if self.source_tier == "custom" and self.deidentified_attestation is not True:
             msg = "custom cases require deidentified_attestation=true"
             raise ValueError(msg)

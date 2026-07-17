@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import inspect, select
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import DBAPIError
 
 from cognisect.db_models import (
@@ -116,6 +118,60 @@ def test_case_provenance_is_a_nullable_column_for_historical_rows() -> None:
     provenance_column = inspect(CaseRecord).columns.provenance_record_id
     assert provenance_column.nullable is True
     assert provenance_column.type.length == 80
+
+
+@pytest.mark.postgres
+async def test_case_provenance_migration_preserves_historical_rows_as_null(
+    db_engine, monkeypatch
+) -> None:
+    owner_id = UUID("00000000-0000-4000-8000-000000000301")
+    case_id = UUID("00000000-0000-4000-8000-000000000302")
+    alembic_config = Config("alembic.ini")
+    monkeypatch.setenv(
+        "COGNISECT_DATABASE_URL",
+        db_engine.url.render_as_string(hide_password=False),
+    )
+
+    await db_engine.dispose()
+    command.downgrade(alembic_config, "a61bd8e7c204")
+    try:
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO owners (id, secret_hash, created_at) "
+                    "VALUES (:id, :secret_hash, now())"
+                ),
+                {"id": owner_id, "secret_hash": "3" * 64},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO cases "
+                    "(id, owner_id, source_tier, original_a, original_b, observed_work, "
+                    "deidentified_attestation, created_at, updated_at) "
+                    "VALUES (:id, :owner_id, 'educator_authored', -3, 5, '-3 - 5 = 2', "
+                    "false, now(), now())"
+                ),
+                {"id": case_id, "owner_id": owner_id},
+            )
+
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.connect() as connection:
+            historical_case = (
+                await connection.execute(
+                    text("SELECT provenance_record_id FROM cases WHERE id = :id"),
+                    {"id": case_id},
+                )
+            ).one()
+        assert historical_case.provenance_record_id is None
+    finally:
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text("DELETE FROM owners WHERE id = :id"),
+                {"id": owner_id},
+            )
 
 
 def test_model_attempt_journal_has_stable_content_free_identity_and_staged_results():

@@ -108,6 +108,13 @@ def test_non_custom_case_does_not_require_attestation():
     assert request.deidentified_attestation is False
 
 
+def test_case_source_validator_name_exposes_attestation_and_provenance_rules() -> None:
+    validator_doc = CreateCaseRequest.attestation_and_provenance_match_source_tier.__doc__
+    assert validator_doc is not None
+    assert "attestation" in validator_doc
+    assert "provenance" in validator_doc
+
+
 def test_provenance_record_id_is_strict_and_only_allowed_for_educator_authored() -> None:
     request = CreateCaseRequest.model_validate(
         {
