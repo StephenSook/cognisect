@@ -7,11 +7,79 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _json(relative_path: str) -> dict[str, Any]:
     return json.loads((ROOT / relative_path).read_text(encoding="utf-8"))
+
+
+def _assert_no_unsupported_positive_claims(public_copy: str) -> None:
+    lowered = public_copy.lower()
+    forbidden_claims = (
+        "confirmed misconception",
+        "exact diagnosis",
+        "educator-reviewed",
+        "validated by educators",
+        "has classroom adoption",
+        "improves learning",
+    )
+    present = [claim for claim in forbidden_claims if claim in lowered]
+    assert not present, f"forbidden public claims: {present}"
+
+    positive_claim_patterns = (
+        r"\b(?:used|deployed|adopted|piloted)\s+in\s+\d+\s+classrooms?\b",
+        r"\b(?:raises?|improves?|increases?|boosts?)\s+(?:learner|student)\s+scores?\b",
+        r"\bdiagnos(?:e|es|ed|ing)\s+misconceptions?\b",
+        r"\beducator[- ]validated\b",
+        r"\bsaves?\s+(?:teachers?|educators?|instructors?)\s+\d+(?:\.\d+)?\s+"
+        r"(?:minutes?|hours?)\b",
+    )
+    matched_patterns = [
+        pattern for pattern in positive_claim_patterns if re.search(pattern, lowered)
+    ]
+    assert not matched_patterns, f"unsupported positive public claim: {matched_patterns}"
+
+    confidence_claims = (
+        r"\b\d+(?:\.\d+)?%\s+confidence\b",
+        r"\bconfidence(?:\s+(?:score|level))?\s*(?:of|:|=)\s*\d",
+        r"\bconfidence(?:\s+(?:score|level))?\s+\d+(?:\.\d+)?%",
+        r"\b(?:high|medium|low)\s+confidence\b",
+    )
+    for pattern in confidence_claims:
+        assert re.search(pattern, lowered) is None
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Used in 20 classrooms.",
+        "Raises learner scores.",
+        "Diagnoses misconceptions.",
+        "Educator-validated.",
+        "Saves teachers 10 minutes.",
+        "Confidence 95%.",
+    ],
+)
+def test_positive_claim_guard_rejects_unsupported_variants(claim: str) -> None:
+    with pytest.raises(AssertionError):
+        _assert_no_unsupported_positive_claims(claim)
+
+
+@pytest.mark.parametrize(
+    "disclaimer",
+    [
+        "No educator usability review has occurred.",
+        "COGNISECT has no classroom adoption.",
+        "This is not a generalized accuracy estimate.",
+    ],
+)
+def test_positive_claim_guard_allows_explicit_negative_disclaimers(
+    disclaimer: str,
+) -> None:
+    _assert_no_unsupported_positive_claims(disclaimer)
 
 
 def test_readme_claims_match_frozen_evidence() -> None:
@@ -69,27 +137,9 @@ def test_public_copy_preserves_claim_boundaries() -> None:
         "read the persisted decision back",
     )
 
-    forbidden_claims = (
-        "confirmed misconception",
-        "exact diagnosis",
-        "educator-reviewed",
-        "validated by educators",
-        "has classroom adoption",
-        "improves learning",
-    )
     missing = [claim for claim in required_claims if claim not in normalized]
-    present = [claim for claim in forbidden_claims if claim in lowered]
-    assert not missing and not present, (
-        f"missing public claims: {missing}; forbidden public claims: {present}"
-    )
-
-    confidence_claims = (
-        r"\b\d+(?:\.\d+)?%\s+confidence\b",
-        r"\bconfidence(?:\s+(?:score|level))?\s*(?:of|:|=)\s*\d",
-        r"\b(?:high|medium|low)\s+confidence\b",
-    )
-    for pattern in confidence_claims:
-        assert re.search(pattern, lowered) is None
+    assert not missing, f"missing public claims: {missing}"
+    _assert_no_unsupported_positive_claims(lowered)
 
 
 def test_readme_judge_path_has_five_steps_and_final_review_readback() -> None:
