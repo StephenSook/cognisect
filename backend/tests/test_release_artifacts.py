@@ -42,7 +42,16 @@ def test_ci_has_six_named_jobs_and_no_sqlite() -> None:
         expected_job_keys
     )
     assert workflow.count("    name:") == 6
+    assert workflow.count("cache-suffix: ${{ github.job }}") == 5
     assert "sqlite" not in workflow.lower()
+
+
+def test_playwright_backend_launcher_uses_the_runner_cache_directory() -> None:
+    config = (ROOT / "frontend" / "playwright.config.ts").read_text(encoding="utf-8")
+
+    assert 'command: "uv run python backend/tests/run_frontend_server.py"' in config
+    assert "process.env.UV_CACHE_DIR" in config
+    assert "UV_CACHE_DIR=/private/tmp" not in config
 
 
 def test_deployment_manifests_do_not_embed_credentials_or_demo_bypasses() -> None:

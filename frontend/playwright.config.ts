@@ -24,9 +24,12 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command:
-        "UV_CACHE_DIR=/private/tmp/cognisect-uv-cache uv run python backend/tests/run_frontend_server.py",
+      command: "uv run python backend/tests/run_frontend_server.py",
       cwd: "..",
+      env: {
+        UV_CACHE_DIR:
+          process.env.UV_CACHE_DIR ?? "/private/tmp/cognisect-uv-cache",
+      },
       url: `${E2E_BACKEND_URL}/health`,
       reuseExistingServer: false,
       timeout: 120_000,
