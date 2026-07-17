@@ -4,15 +4,10 @@ import { describe, expect, it } from "vitest";
 import { config, proxy } from "@/proxy";
 
 describe("teacher first-visit owner session", () => {
-  it("sets a 256-bit HttpOnly owner cookie before a teacher page can mutate", () => {
+  it("leaves first owner bootstrap to the distributed backend boundary", () => {
     const response = proxy(new NextRequest("https://app.example/lab"));
-    const cookie = response.cookies.get("cognisect_owner");
 
-    expect(cookie?.value).toMatch(/^[0-9a-f]{64}$/);
-    expect(cookie?.httpOnly).toBe(true);
-    expect(cookie?.sameSite).toBe("lax");
-    expect(cookie?.path).toBe("/");
-    expect(cookie?.secure).toBe(true);
+    expect(response.cookies.get("cognisect_owner")).toBeUndefined();
   });
 
   it("preserves an existing owner capability", () => {

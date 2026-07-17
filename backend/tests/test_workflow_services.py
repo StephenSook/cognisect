@@ -100,6 +100,7 @@ def test_settings() -> Settings:
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
         abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="",
     )

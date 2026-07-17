@@ -76,15 +76,24 @@ The repository hygiene scanner passed. npm audit and pip-audit each reported zer
 known vulnerabilities for the installed locked release dependencies. A zero result
 means no advisory match at audit time, not proof that every dependency is safe.
 
-Public case creation now uses a Postgres fixed-window quota keyed by an HMAC-SHA256
-of the request client host. The quota is consumed before owner bootstrap, so 428
-bootstrap attempts are bounded. Analysis uses a separate quota keyed by the owner
-capability. Only the scope, HMAC bucket, UTC window timestamps, and counter persist;
-raw client hosts and owner capabilities are never written to the limiter table.
-The dedicated `ABUSE_KEY_PEPPER` must not equal either capability pepper. Atomic
-`INSERT ... ON CONFLICT` consumption makes the configured limit exact across API
-processes. A rejected request returns only `{"detail":"rate limit exceeded"}` and
-a numeric `Retry-After` header.
+Public case creation uses a Postgres fixed-window quota. At Vercel, the platform
+client address is immediately converted into a domain-separated HMAC bucket; the
+raw address is not forwarded to the backend. A distinct shared proxy secret signs
+the bucket together with a short timestamp, method, and path. The backend verifies
+that signature in constant time and rejects partial, invalid, or stale proxy
+identity before quota or owner mutation. Direct backend requests with no signed
+identity fall back to the socket host in a separate key-material domain. The quota
+is consumed before backend owner bootstrap, so 428 attempts are bounded.
+
+Analysis first authorizes the owner capability, then consumes a separate quota.
+Rotating syntactically valid but unauthorized capabilities therefore create no
+limiter rows. Only the scope, twice-HMACed bucket, UTC window timestamps, and
+counter persist; raw client hosts, proxy buckets, and owner capabilities are never
+written to the limiter table. `ABUSE_KEY_PEPPER`, `PROXY_SIGNING_SECRET`, and both
+capability peppers must be mutually distinct. Atomic `INSERT ... ON CONFLICT`
+consumption makes the configured limit exact across API processes. A rejected
+request returns only `{"detail":"rate limit exceeded"}` and a numeric
+`Retry-After` header.
 
 ## Production stress evidence
 
@@ -123,15 +132,19 @@ npm run test:e2e
 Default application retention is 30 days and configurable to 365. In production,
 the application attaches the graph runtime first, then runs retention immediately
 and every 21,600 seconds. Each iteration removes expired educational content and
-checkpoints plus expired limiter buckets. Iteration failures are logged without
-stopping the API and are retried at the next interval. Owner-authorized deletion
+checkpoints plus expired limiter buckets. Limiter cleanup uses an expiry-leading
+index and drains bounded `FOR UPDATE SKIP LOCKED` batches in short transactions.
+Iteration failures are logged without stopping the API and are retried at the
+next interval. Owner-authorized deletion
 removes workflow educational content and checkpoints; a content-free HMAC tombstone
 prevents an old idempotency command from recreating it.
 
 The fixed-window limiter is a database-backed abuse bound, not authentication or a
 substitute for an edge DDoS service. A shared NAT can aggregate unrelated teachers,
-and correctness depends on the deployment exposing the intended request-client host
-to ASGI. Rotating `ABUSE_KEY_PEPPER` starts new logical buckets. Application purge
+and correctness depends on Vercel supplying the intended platform-owned client
+header and Render accepting only the authenticated derived bucket. Rotating
+`ABUSE_KEY_PEPPER` starts new logical buckets; rotating the proxy secret requires
+an atomic frontend/backend configuration update. Application purge
 does not erase provider logs or backups. Free-tier backups, high availability,
 alerting, and long-term availability are not production-grade guarantees. Provider
 access, proxy topology, quotas, and retention should be re-audited before any real

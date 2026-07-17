@@ -1,28 +1,84 @@
+import { createHmac } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { forwardBackendRequest, resolveBackendUrl } from "@/lib/backend-proxy";
 
 describe("same-origin backend proxy", () => {
-  it("bootstraps an owner without forwarding the first educational mutation", async () => {
-    const upstream = vi.fn();
+  it("forwards initial bootstrap with an authenticated privacy-safe Vercel client bucket", async () => {
+    const proxySecret = "p".repeat(32);
+    const publicClientIp = "198.51.100.87";
+    const expectedBucket = createHmac("sha256", proxySecret)
+      .update(`cognisect:proxy-client-bucket:v1\0${publicClientIp}`)
+      .digest("hex");
+    const upstream = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      const timestamp = headers.get("x-cognisect-proxy-timestamp");
+      expect(timestamp).toMatch(/^\d{10}$/);
+      expect(headers.get("x-cognisect-client-bucket")).toBe(expectedBucket);
+      expect(headers.has("x-vercel-forwarded-for")).toBe(false);
+      const expectedSignature = createHmac("sha256", proxySecret)
+        .update(
+          [
+            "cognisect:proxy-request:v1",
+            timestamp,
+            "POST",
+            "/v1/cases",
+            expectedBucket,
+          ].join("\n"),
+        )
+        .digest("hex");
+      expect(headers.get("x-cognisect-proxy-signature")).toBe(expectedSignature);
+      return Response.json(
+        { detail: "owner session initialized; retry the exact command" },
+        {
+          status: 428,
+          headers: {
+            "Cache-Control": "no-store, private",
+            "Set-Cookie": "cognisect_owner=backend-owner; HttpOnly; SameSite=Lax",
+          },
+        },
+      );
+    });
     const response = await forwardBackendRequest({
       request: new Request("http://frontend.test/api/backend/v1/cases", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": "stable-create-key",
+          "X-Vercel-Forwarded-For": publicClientIp,
         },
         body: '{"observed_work":"de-identified"}',
       }),
       path: ["v1", "cases"],
       backendUrl: "http://backend.test",
       fetchImplementation: upstream,
+      proxySigningSecret: proxySecret,
     });
 
     expect(response.status).toBe(428);
-    expect(response.headers.get("set-cookie")).toMatch(
-      /^cognisect_owner=[0-9a-f]{64};.*HttpOnly.*SameSite=Lax/i,
+    expect(response.headers.get("set-cookie")).toBe(
+      "cognisect_owner=backend-owner; HttpOnly; SameSite=Lax",
     );
+    expect(upstream).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when signed case forwarding lacks Vercel client identity", async () => {
+    const upstream = vi.fn();
+    const response = await forwardBackendRequest({
+      request: new Request("http://frontend.test/api/backend/v1/cases", {
+        method: "POST",
+        headers: { "Idempotency-Key": "missing-platform-identity" },
+        body: "{}",
+      }),
+      path: ["v1", "cases"],
+      backendUrl: "http://backend.test",
+      fetchImplementation: upstream,
+      proxySigningSecret: "p".repeat(32),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.json()).resolves.toEqual({ detail: "invalid proxy identity" });
     expect(upstream).not.toHaveBeenCalled();
   });
 
@@ -120,6 +176,34 @@ describe("same-origin backend proxy", () => {
     expect(response.headers.get("content-disposition")).toBe(
       `attachment; filename="${filename}"`,
     );
+  });
+
+  it("propagates only the privacy-safe Retry-After header on upstream 429", async () => {
+    const response = await forwardBackendRequest({
+      request: new Request("http://frontend.test/api/backend/v1/cases", {
+        method: "POST",
+        headers: {
+          Cookie: "cognisect_owner=owner-capability",
+          "Idempotency-Key": "rate-limited-create",
+        },
+        body: "{}",
+      }),
+      path: ["v1", "cases"],
+      backendUrl: "http://backend.test",
+      fetchImplementation: vi.fn(async () =>
+        Response.json(
+          { detail: "rate limit exceeded" },
+          {
+            status: 429,
+            headers: { "Retry-After": "37", "X-Internal-Debug": "private" },
+          },
+        ),
+      ),
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("37");
+    expect(response.headers.has("x-internal-debug")).toBe(false);
   });
 
   it("rejects oversized raw bodies before forwarding and preserves learner privacy", async () => {
@@ -226,5 +310,19 @@ describe("same-origin backend proxy", () => {
     expect(() => resolveBackendUrl(undefined, "production", "test")).toThrow(
       "COGNISECT_BACKEND_URL",
     );
+  });
+
+  it("requires an explicit bounded proxy signing secret in production", async () => {
+    const proxyModule = await import("@/lib/backend-proxy");
+    const resolver = Reflect.get(proxyModule, "resolveProxySigningSecret");
+    expect(typeof resolver).toBe("function");
+    expect(() => resolver(undefined, "production")).toThrow(
+      "COGNISECT_PROXY_SIGNING_SECRET",
+    );
+    expect(() => resolver("short", "production")).toThrow(
+      "COGNISECT_PROXY_SIGNING_SECRET",
+    );
+    expect(resolver("p".repeat(32), "production")).toBe("p".repeat(32));
+    expect(resolver(undefined, "development")).toBeUndefined();
   });
 });

@@ -23,6 +23,7 @@ def main() -> None:
         owner_secret_pepper=SecretStr("openapi-owner-pepper-value-32chars"),
         learner_token_pepper=SecretStr("openapi-learner-pepper-value-32ch"),
         abuse_key_pepper=SecretStr("openapi-abuse-pepper-value-32chars"),
+        proxy_signing_secret=SecretStr("openapi-proxy-secret-value-32chars"),
         public_app_url="https://cognisect.example",
         openai_api_key=SecretStr(""),
     )

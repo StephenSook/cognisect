@@ -21,6 +21,7 @@ VALID_ENV = {
     "owner_secret_pepper": "o" * 32,
     "learner_token_pepper": "l" * 32,
     "abuse_key_pepper": "a" * 32,
+    "proxy_signing_secret": "p" * 32,
     "public_app_url": "https://cognisect.example",
     "openai_api_key": "sk-test-" + ("k" * 32),
 }
@@ -34,6 +35,7 @@ VALID_ENV = {
         ("owner_secret_pepper", "short"),
         ("learner_token_pepper", "replace-with-at-least-32-random-characters"),
         ("abuse_key_pepper", "shared-or-short"),
+        ("proxy_signing_secret", "short"),
     ],
 )
 def test_settings_reject_non_postgres_or_placeholder_security_values(field, value):
@@ -74,6 +76,25 @@ def test_abuse_pepper_must_be_dedicated(shared_with: str) -> None:
     values = {**VALID_ENV, "abuse_key_pepper": VALID_ENV[shared_with]}
 
     with pytest.raises(ValidationError, match="ABUSE_KEY_PEPPER must be distinct"):
+        Settings(**values)
+
+
+def test_production_requires_proxy_signing_secret_without_silent_fallback() -> None:
+    values = {**VALID_ENV, "app_env": "production"}
+    values.pop("proxy_signing_secret")
+
+    with pytest.raises(ValidationError, match="PROXY_SIGNING_SECRET"):
+        Settings(**values)
+
+
+@pytest.mark.parametrize(
+    "shared_with",
+    ["owner_secret_pepper", "learner_token_pepper", "abuse_key_pepper"],
+)
+def test_proxy_signing_secret_must_be_dedicated(shared_with: str) -> None:
+    values = {**VALID_ENV, "proxy_signing_secret": VALID_ENV[shared_with]}
+
+    with pytest.raises(ValidationError, match="PROXY_SIGNING_SECRET must be distinct"):
         Settings(**values)
 
 

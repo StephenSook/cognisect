@@ -24,6 +24,8 @@ services:
         generateValue: true
       - key: ABUSE_KEY_PEPPER
         generateValue: true
+      - key: PROXY_SIGNING_SECRET
+        sync: false
       - key: PUBLIC_APP_URL
         sync: false
       - key: RETENTION_DAYS

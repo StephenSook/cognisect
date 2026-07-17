@@ -1258,6 +1258,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "Not ready"
           }
         },
         "summary": "Ready Route"
@@ -1336,6 +1339,18 @@
               }
             },
             "description": "Owner session initialized before educational mutation"
+          },
+          "429": {
+            "description": "Fixed-window request quota exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the current quota window expires",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Create Case Route"
@@ -1414,6 +1429,18 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "description": "Fixed-window request quota exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the current quota window expires",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Analyze Case Route"

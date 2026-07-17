@@ -44,7 +44,12 @@ from cognisect.db_models import SCHEMA_VERSION
 from cognisect.interpreter import COMPILER_VERSION, REGISTRY_VERSION
 from cognisect.model_analyzer import ResponsesAnalyzer
 from cognisect.model_attempts import ATTEMPT_GRACE_SECONDS, PostgresAttemptJournal
-from cognisect.rate_limit import PostgresRateLimiter, RateLimitDecision
+from cognisect.rate_limit import (
+    InvalidProxyIdentityError,
+    PostgresRateLimiter,
+    RateLimitDecision,
+    case_creation_key_material,
+)
 from cognisect.repositories import (
     ConcurrentWriteError,
     OwnedResourceNotFoundError,
@@ -85,8 +90,17 @@ IdempotencyKey = Annotated[
 ]
 OwnerCookie = Annotated[str | None, Cookie(alias=OWNER_COOKIE_NAME)]
 OWNER_SECRET_PATTERN = re.compile(r"^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$")
-EXPECTED_ALEMBIC_HEAD = "f4c2d8a6b310"
+EXPECTED_ALEMBIC_HEAD = "c5d7e9f1a204"
 RATE_LIMIT_WINDOW_SECONDS = 3_600
+RATE_LIMIT_RESPONSE = {
+    "description": "Fixed-window request quota exceeded",
+    "headers": {
+        "Retry-After": {
+            "description": "Seconds until the current quota window expires",
+            "schema": {"type": "integer", "minimum": 1},
+        }
+    },
+}
 
 
 def _owner_or_404(owner_secret: str | None) -> str:
@@ -323,7 +337,8 @@ def create_app(  # noqa: C901, PLR0915
             status.HTTP_428_PRECONDITION_REQUIRED: {
                 "model": OwnerBootstrapResponse,
                 "description": "Owner session initialized before educational mutation",
-            }
+            },
+            status.HTTP_429_TOO_MANY_REQUESTS: RATE_LIMIT_RESPONSE,
         },
     )
     async def create_case_route(
@@ -333,10 +348,20 @@ def create_app(  # noqa: C901, PLR0915
         owner_secret: OwnerCookie = None,
     ) -> Response:
         client_host = http_request.client.host if http_request.client is not None else "unknown"
+        try:
+            key_material = case_creation_key_material(
+                http_request.headers,
+                method=http_request.method,
+                path=http_request.url.path,
+                client_host=client_host,
+                proxy_signing_secret=resolved_settings.proxy_signing_secret,
+            )
+        except InvalidProxyIdentityError as exception:
+            raise HTTPException(status_code=400, detail="invalid proxy identity") from exception
         _raise_if_limited(
             await rate_limiter.consume(
                 scope="case_creation",
-                key_material=client_host,
+                key_material=key_material,
                 limit=resolved_settings.case_creation_limit_per_hour,
                 window_seconds=RATE_LIMIT_WINDOW_SECONDS,
             )
@@ -371,7 +396,11 @@ def create_app(  # noqa: C901, PLR0915
             ).model_dump(mode="json"),
         )
 
-    @app.post("/v1/cases/{case_id}/analysis", response_model=WorkflowResponse)
+    @app.post(
+        "/v1/cases/{case_id}/analysis",
+        response_model=WorkflowResponse,
+        responses={status.HTTP_429_TOO_MANY_REQUESTS: RATE_LIMIT_RESPONSE},
+    )
     async def analyze_case_route(
         case_id: UUID,
         request: AnalysisRequest,
@@ -379,6 +408,7 @@ def create_app(  # noqa: C901, PLR0915
         owner_secret: OwnerCookie = None,
     ) -> WorkflowResponse:
         secret = _owner_or_404(owner_secret)
+        await service.authorize_owner_capability(secret)
         _raise_if_limited(
             await rate_limiter.consume(
                 scope="analysis",
@@ -525,7 +555,10 @@ def create_app(  # noqa: C901, PLR0915
             await session.execute(text("SELECT 1"))
         return {"status": "ok"}
 
-    @app.get("/ready")
+    @app.get(
+        "/ready",
+        responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Not ready"}},
+    )
     async def ready_route() -> dict[str, str]:
         try:
             async with session_factory() as session:

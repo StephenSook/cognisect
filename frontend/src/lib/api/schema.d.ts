@@ -752,6 +752,13 @@ export interface operations {
                     };
                 };
             };
+            /** @description Not ready */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     create_case_route_v1_cases_post: {
@@ -798,6 +805,15 @@ export interface operations {
                     "application/json": components["schemas"]["OwnerBootstrapResponse"];
                 };
             };
+            /** @description Fixed-window request quota exceeded */
+            429: {
+                headers: {
+                    /** @description Seconds until the current quota window expires */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     analyze_case_route_v1_cases__case_id__analysis_post: {
@@ -836,6 +852,15 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description Fixed-window request quota exceeded */
+            429: {
+                headers: {
+                    /** @description Seconds until the current quota window expires */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

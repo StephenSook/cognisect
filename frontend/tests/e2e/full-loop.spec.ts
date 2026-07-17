@@ -120,6 +120,15 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   consumeExpectedFailure(browserFailures, "net::ERR_FAILED");
   await page.unroute("**/api/backend/v1/cases");
   await page.getByRole("button", { name: "Retry exact command" }).click();
+  await expect(page.locator(".form-alert")).toHaveText(
+    "The private owner session is ready. Retry sends the exact locked command.",
+  );
+  const ownerCookie = await page.context().cookies();
+  expect(
+    ownerCookie.find((cookie) => cookie.name === "cognisect_owner")?.value,
+  ).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  consumeExpectedFailure(browserFailures, "status of 428");
+  await page.getByRole("button", { name: "Retry exact command" }).click();
   await expect(page).toHaveURL(/\/case\/[0-9a-f-]+$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "Compiled probe" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -139,6 +148,31 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   expect(compiledProbeBox!.y + compiledProbeBox!.height).toBeLessThanOrEqual(
     decisionBox!.y,
   );
+
+  const limitedResponse = await page.evaluate(async () => {
+    const response = await fetch("/api/backend/v1/cases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        source_tier: "custom",
+        problem: { a: -3, b: 5 },
+        observed_work: "-3 - 5 = 2",
+        deidentified_attestation: true,
+      }),
+    });
+    return {
+      status: response.status,
+      retryAfter: response.headers.get("retry-after"),
+      body: await response.json(),
+    };
+  });
+  expect(limitedResponse.status).toBe(429);
+  expect(limitedResponse.retryAfter).toMatch(/^\d+$/);
+  expect(limitedResponse.body).toEqual({ detail: "rate limit exceeded" });
+  consumeExpectedFailure(browserFailures, "status of 429");
 
   await page.getByRole("button", { name: "Approve probe" }).click();
   const firstLearnerLink = await page.getByLabel("Learner response link").inputValue();
@@ -234,7 +268,12 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   expect(browserFailures).toEqual([]);
 });
 
-test("teacher abstention and unavailable learner states stay explicit", async ({ page }) => {
+test("teacher abstention and unavailable learner states stay explicit", async ({ page }, testInfo) => {
+  await page.setExtraHTTPHeaders({
+    "x-vercel-forwarded-for": testInfo.project.name === "desktop"
+      ? "203.0.113.12"
+      : "203.0.113.13",
+  });
   await page.goto("/respond/not-a-real-token");
   await expect(page.getByRole("heading", { name: "Learner response unavailable" })).toBeVisible();
   await expect(page.locator('p[role="alert"]')).toHaveText(
@@ -243,10 +282,15 @@ test("teacher abstention and unavailable learner states stay explicit", async ({
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
   await page.goto("/lab");
+  await page.getByLabel("Case source").selectOption("educator_authored");
   await page.getByLabel("First integer").fill("-3");
   await page.getByLabel("Second integer").fill("5");
   await page.getByLabel("Observed work").fill("-3 - 5 = 2");
   await page.getByRole("button", { name: "Create and analyze" }).click();
+  await expect(page.locator(".form-alert")).toHaveText(
+    "The private owner session is ready. Retry sends the exact locked command.",
+  );
+  await page.getByRole("button", { name: "Retry exact command" }).click();
   await expect(page.getByRole("button", { name: "Decline probe" })).toBeVisible({
     timeout: 20_000,
   });

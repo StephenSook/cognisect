@@ -18,6 +18,7 @@ def test_generated_openapi_matches_frozen_artifact():
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
         abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="",
     )
@@ -33,6 +34,7 @@ def test_evidence_receipt_preserves_strict_compiler_and_hash_constraints():
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
         abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="",
     )
@@ -80,3 +82,28 @@ def test_evidence_receipt_preserves_strict_compiler_and_hash_constraints():
     assert hypothesis["truth_table_hash"]["minLength"] == 64
     assert hypothesis["truth_table_hash"]["maxLength"] == 64
     assert hypothesis["truth_table_hash"]["pattern"] == "^[0-9a-f]{64}$"
+
+
+def test_rate_limit_and_readiness_failures_are_explicit_openapi_contracts() -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
+        owner_secret_pepper="o" * 32,
+        learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
+        public_app_url="http://localhost:3000",
+        openai_api_key="",
+    )
+    paths = create_app(settings=settings, analyzer=None).openapi()["paths"]
+
+    for operation in (
+        paths["/v1/cases"]["post"],
+        paths["/v1/cases/{case_id}/analysis"]["post"],
+    ):
+        response = operation["responses"]["429"]
+        assert response["headers"]["Retry-After"]["schema"] == {
+            "minimum": 1,
+            "type": "integer",
+        }
+    assert "503" in paths["/ready"]["get"]["responses"]

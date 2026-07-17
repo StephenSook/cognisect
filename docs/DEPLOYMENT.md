@@ -32,11 +32,26 @@ root-directory guidance](https://vercel.com/docs/monorepos).
    must all be distinct and retained outside the database.
 3. Import the GitHub repository into a dedicated Vercel project and set Root
    Directory to `frontend`; enable source files outside that directory.
-4. Set `COGNISECT_BACKEND_URL` to the Render HTTPS origin and
-   `COGNISECT_FRONTEND_ENV=production` in Vercel. Do not expose either pepper or
-   the OpenAI key to Vercel or to `NEXT_PUBLIC_*` variables.
-5. Keep preview deployments from using production Postgres or production
+4. Generate a fourth, distinct secret of at least 32 random characters. Set the
+   same value as `PROXY_SIGNING_SECRET` in Render and
+   `COGNISECT_PROXY_SIGNING_SECRET` in Vercel. It is a server-only shared proxy
+   credential: never use a `NEXT_PUBLIC_*` variable, and rotate both copies
+   together.
+5. Set `COGNISECT_BACKEND_URL` to the Render HTTPS origin and
+   `COGNISECT_FRONTEND_ENV=production` in Vercel. Do not expose a persistence
+   pepper or the OpenAI key to Vercel or to `NEXT_PUBLIC_*` variables.
+6. Keep preview deployments from using production Postgres or production
    capabilities.
+
+For case-creation quotas, the Vercel route reads the platform-owned
+`x-vercel-forwarded-for` value described in Vercel's official
+[request-header reference](https://vercel.com/docs/headers/request-headers),
+immediately replaces the address with an HMAC bucket, and sends only that bucket
+to Render. A short-lived, method-and-path-bound HMAC authenticates the bucket.
+Render rejects partial, stale, or invalid signed identity headers before quota or
+owner mutation. Direct calls with no proxy identity use the backend socket host
+in a separate HMAC domain. Re-audit this trust boundary if another reverse proxy
+is placed in front of Vercel.
 
 Render's connection string is normalized at process start from `postgres://` or
 `postgresql://` to SQLAlchemy's explicit `postgresql+psycopg://` dialect without
@@ -55,7 +70,7 @@ verifying a production release.
 1. Merge only after all six GitHub checks succeed.
 2. Record the merged SHA. Query check runs and require six completed successes.
 3. Confirm startup migration and the `/ready` Render check succeed. `/ready`
-   requires database access and exact Alembic head `f4c2d8a6b310`; `/health`
+   requires database access and exact Alembic head `c5d7e9f1a204`; `/health`
    remains the backward-compatible database liveness response.
 4. Confirm Vercel and Render display the same intended source SHA.
 5. From a logged-out teacher browser, create and analyze a de-identified case,

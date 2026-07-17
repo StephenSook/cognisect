@@ -15,11 +15,19 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        extraHTTPHeaders: { "x-vercel-forwarded-for": "203.0.113.10" },
+      },
     },
     {
       name: "mobile",
-      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
+        extraHTTPHeaders: { "x-vercel-forwarded-for": "203.0.113.11" },
+      },
     },
   ],
   webServer: [
@@ -40,6 +48,7 @@ export default defineConfig({
         COGNISECT_APP_URL: E2E_APP_URL,
         COGNISECT_BACKEND_URL: E2E_BACKEND_URL,
         COGNISECT_FRONTEND_ENV: "test",
+        COGNISECT_PROXY_SIGNING_SECRET: "p".repeat(32),
       },
       url: E2E_APP_URL,
       reuseExistingServer: false,

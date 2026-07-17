@@ -418,6 +418,11 @@ class WorkflowService:
             )
         return owner_secret
 
+    async def authorize_owner_capability(self, owner_secret: str) -> None:
+        """Validate an owner capability without reading or mutating educational content."""
+        async with self._sessions() as session:
+            await self._owner_for_secret(session, owner_secret)
+
     async def _register_and_lock_owner(
         self,
         session: AsyncSession,

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     owner_secret_pepper: SecretStr
     learner_token_pepper: SecretStr
     abuse_key_pepper: SecretStr
+    proxy_signing_secret: SecretStr = SecretStr("")
     public_app_url: str
     openai_api_key: SecretStr = SecretStr("")
     retention_days: int = Field(default=30, ge=1, le=365)
@@ -88,6 +89,21 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return value
 
+    @field_validator("proxy_signing_secret")
+    @classmethod
+    def proxy_secret_is_empty_or_explicit_and_long(cls, value: SecretStr) -> SecretStr:
+        """Permit no proxy only outside production; otherwise reject weak values."""
+        raw = value.get_secret_value()
+        if not raw:
+            return value
+        lowered = raw.lower()
+        if len(raw) < MIN_SECRET_LENGTH or any(
+            part in lowered for part in _PLACEHOLDER_PARTS
+        ):
+            msg = "PROXY_SIGNING_SECRET must be explicit and at least 32 characters"
+            raise ValueError(msg)
+        return value
+
     @field_validator("source_revision")
     @classmethod
     def source_revision_is_development_or_git_sha(cls, value: str) -> str:
@@ -118,8 +134,19 @@ class Settings(BaseSettings):
         }:
             msg = "ABUSE_KEY_PEPPER must be distinct from capability peppers"
             raise ValueError(msg)
+        proxy_secret = self.proxy_signing_secret.get_secret_value()
+        if proxy_secret and proxy_secret in {
+            self.owner_secret_pepper.get_secret_value(),
+            self.learner_token_pepper.get_secret_value(),
+            abuse_pepper,
+        }:
+            msg = "PROXY_SIGNING_SECRET must be distinct from all persistence peppers"
+            raise ValueError(msg)
         if self.app_env != "production":
             return self
+        if not proxy_secret:
+            msg = "PROXY_SIGNING_SECRET is required in production"
+            raise ValueError(msg)
         parsed = urlparse(self.public_app_url)
         hostname = parsed.hostname or ""
         is_loopback = hostname.lower() == "localhost"

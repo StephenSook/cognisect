@@ -78,6 +78,7 @@ def api_settings() -> Settings:
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
         abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="FORBIDDEN-PROVIDER-CREDENTIAL-41ac",
     )
@@ -167,7 +168,7 @@ async def test_readiness_fails_closed_on_alembic_head_mismatch(client, db_engine
     finally:
         async with db_engine.begin() as connection:
             await connection.execute(
-                text("UPDATE alembic_version SET version_num = 'f4c2d8a6b310'")
+                text("UPDATE alembic_version SET version_num = 'c5d7e9f1a204'")
             )
 
 
@@ -561,6 +562,7 @@ async def test_production_owner_cookie_is_hardened(db_engine, db_session):
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
         abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="https://cognisect.example",
         openai_api_key="sk-test-" + ("k" * 32),
     )

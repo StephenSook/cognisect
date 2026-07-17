@@ -91,7 +91,7 @@ class RateLimitWindowRecord(Base):
             "expires_at > window_started_at",
             name="ck_rate_limit_windows_expiry",
         ),
-        Index("ix_rate_limit_windows_scope_expires_at", "scope", "expires_at"),
+        Index("ix_rate_limit_windows_expires_at", "expires_at"),
     )
 
     scope: Mapped[str] = mapped_column(String(64), nullable=False)
