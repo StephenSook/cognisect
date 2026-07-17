@@ -198,6 +198,32 @@ async def test_teacher_dto_fails_closed_when_persisted_probe_predictions_do_not_
 
 
 @pytest.mark.postgres
+@pytest.mark.parametrize(
+    ("field", "tampered_value"),
+    [
+        ("correct_prediction", 9_999),
+        ("registry_version", "rule_registry.tampered"),
+        ("compiler_version", "counterexample_compiler.tampered"),
+        ("specification_hash", "f" * 64),
+        ("original_a", -2),
+        ("chosen_a", 9),
+    ],
+)
+async def test_teacher_dto_fails_closed_when_persisted_probe_header_does_not_reproduce(
+    service, db_engine, case_request, field, tampered_value
+):
+    created, _workflow = await prepare_probe(service, case_request)
+    factory = create_session_factory(db_engine)
+    async with factory() as session, session.begin():
+        probe = await session.scalar(select(CompiledProbeRecord))
+        assert probe is not None
+        setattr(probe, field, tampered_value)
+
+    with pytest.raises(ReplayConflictError, match="persisted compiler proof"):
+        await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+
+
+@pytest.mark.postgres
 async def test_terra_note_is_persisted_before_response_then_only_evidence_is_attached(
     db_engine, db_session, test_settings, case_request
 ):

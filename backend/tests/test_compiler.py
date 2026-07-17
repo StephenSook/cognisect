@@ -7,11 +7,13 @@ import os
 import subprocess
 import sys
 from dataclasses import replace
+from inspect import Parameter, signature
 from typing import cast
 
 from hypothesis import given
 from hypothesis import strategies as st
 
+import cognisect.compiler as compiler_module
 from cognisect.compiler import (
     CompiledProbe,
     CompilerAbstention,
@@ -293,6 +295,67 @@ def test_compiler_exposes_complete_proof_from_the_selection_ranking_pass() -> No
     )
     assert chosen.operand_magnitude == abs(chosen.problem.a) + abs(chosen.problem.b)
     assert chosen.correct_result_magnitude == abs(chosen.problem.a - chosen.problem.b)
+    assert [
+        (
+            candidate.problem,
+            candidate.predictions,
+            candidate.distinct_output_count,
+            candidate.top_two_separated,
+            candidate.distinguished_pair_count,
+            candidate.operand_magnitude,
+            candidate.correct_result_magnitude,
+            candidate.rank,
+        )
+        for candidate in result.proof.top_candidates
+    ] == [
+        (
+            compiler_module.SignedProblem(a=problem[0], b=problem[1]),
+            predictions,
+            -rank_key[0],
+            bool(-rank_key[1]),
+            -rank_key[2],
+            rank_key[3],
+            rank_key[4],
+            rank,
+        )
+        for rank, (rank_key, problem, predictions) in enumerate(independent[:5], start=1)
+    ]
+
+
+def test_compiler_reuses_ranking_pass_predictions_for_compiled_hypotheses(
+    monkeypatch,
+) -> None:
+    prediction_calls = 0
+    real_prediction = compiler_module._prediction
+
+    def counting_prediction(hypothesis, a, b):
+        nonlocal prediction_calls
+        prediction_calls += 1
+        return real_prediction(hypothesis, a, b)
+
+    monkeypatch.setattr(compiler_module, "_prediction", counting_prediction)
+
+    result = compile_probe(
+        _mapping(
+            (
+                "ignore_subtrahend_sign",
+                "add_subtrahend",
+                "absolute_difference",
+                "negative_magnitude_sum",
+            )
+        ),
+        -1,
+        1,
+    )
+
+    assert isinstance(result, CompiledProbe)
+    assert prediction_calls == (
+        result.proof.eligible_candidate_count * len(result.hypotheses)
+    )
+
+
+def test_compiled_probe_requires_a_search_proof() -> None:
+    assert signature(CompiledProbe).parameters["proof"].default is Parameter.empty
 
 
 @given(

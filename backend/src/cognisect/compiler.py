@@ -79,7 +79,7 @@ class CompiledProbe:
     correct_prediction: int
     hypotheses: tuple[ProbeHypothesis, ...]
     specification_hash: str
-    proof: CompilerSearchProof | None = None
+    proof: CompilerSearchProof
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,9 +267,11 @@ def compile_accepted_probe(
             description=hypothesis.description,
             rank=hypothesis.rank,
             truth_table_hash=hypothesis.truth_table_hash,
-            prediction=_prediction(hypothesis, chosen_a, chosen_b),
+            prediction=prediction,
         )
-        for hypothesis in hypotheses
+        for hypothesis, prediction in zip(
+            hypotheses, chosen_candidate.predictions, strict=True
+        )
     )
     payload = _specification_payload(
         versions=(REGISTRY_VERSION, COMPILER_VERSION),

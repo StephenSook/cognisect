@@ -313,8 +313,13 @@ def _derive_persisted_proof(
     )
     if (
         not isinstance(result, CompiledProbe)
-        or result.proof is None
+        or result.registry_version != probe.registry_version
+        or result.compiler_version != probe.compiler_version
+        or result.original_problem
+        != SignedProblem(a=probe.original_a, b=probe.original_b)
         or result.chosen_problem != SignedProblem(a=probe.chosen_a, b=probe.chosen_b)
+        or result.correct_prediction != probe.correct_prediction
+        or result.specification_hash != probe.specification_hash
         or reproduced_prediction_specs != persisted_prediction_specs
         or result.proof.top_candidates[0].predictions != persisted_predictions
     ):
