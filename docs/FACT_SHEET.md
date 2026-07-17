@@ -96,9 +96,9 @@ Tested preview SHA: `6a7d848b9444a63b4ed62571e55b735c644b39ed`
 
 Educator usability review: not conducted
 
-- KSU outreach research and draft-only messages were prepared privately. No
-  message was sent, no review occurred, and no educator approval or usability
-  result is claimed.
+- Three KSU outreach messages were sent by the project owner. No educator
+  response, consent, review session, approval, or usability result is recorded or
+  claimed.
 - Authentic learner records: 0.
 - Evaluated learner responses: 0.
 - Full interactive evaluation: not run because no real learner responses were
