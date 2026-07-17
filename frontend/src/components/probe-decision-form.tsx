@@ -15,7 +15,7 @@ export function ProbeDecisionForm({
 }: {
   workflowId: string;
   version: number;
-  onDecision?: (result: DecisionResult) => void;
+  onDecision?: (result: DecisionResult) => boolean | void;
 }) {
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -40,12 +40,16 @@ export function ProbeDecisionForm({
       if (result.data === undefined) {
         setMessage("The decision was not accepted. Refresh the workflow before retrying.");
       } else {
-        onDecision?.(result.data);
-        setMessage(
-          result.data.response_url === null
-            ? "Probe declined. The workflow abstained."
-            : "Probe approved. The learner link is ready below.",
-        );
+        const accepted = onDecision?.(result.data);
+        if (accepted === false) {
+          setMessage("A stale decision response was ignored. Refresh before retrying.");
+        } else {
+          setMessage(
+            result.data.response_url === null
+              ? "Probe declined. The workflow abstained."
+              : "Probe approved. The learner link is ready below.",
+          );
+        }
       }
     } catch {
       setMessage("The decision service is unavailable. You can retry safely.");

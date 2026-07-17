@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ReportView } from "@/components/report-view";
@@ -38,6 +38,18 @@ describe("live evidence tour route content", () => {
 });
 
 describe("teacher report content", () => {
+  it.each([
+    ["ANALYZING", "Constrained GPT mapping"],
+    ["RESPONSE_RECORDED", "Exact evidence update"],
+    ["AWAITING_REVIEW", "Second teacher gate"],
+  ])("maps report state %s instead of assuming the second teacher gate", (state, stage) => {
+    const workflow = workflowFixture(state);
+    render(<ReportView workflow={workflow} audit={{ workflow_id: workflow.workflow_id, events: [] }} />);
+
+    const tour = screen.getByRole("navigation", { name: "Live evidence tour" });
+    expect(within(tour).getByText(stage)).toHaveAttribute("aria-current", "step");
+  });
+
   it("renders persisted deterministic evidence, proposal, review, and audit readback", () => {
     const workflow = workflowFixture("AWAITING_REVIEW");
     workflow.deterministic_evidence = [

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -550,6 +550,130 @@ describe("workflow polling", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(fetchImplementation).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects a late stale poll after a newer teacher decision and preserves its learner link", async () => {
+    vi.useFakeTimers();
+    const stale = workflowFixture("PROBE_READY");
+    const approved = workflowFixture("AWAITING_RESPONSE");
+    approved.version = 3;
+    approved.learner_response_url = "http://localhost:3000/respond/newer-link";
+    let resolvePoll: ((response: Response) => void) | undefined;
+    let markPollParsed: (() => void) | undefined;
+    const pollParsed = new Promise<void>((resolve) => {
+      markPollParsed = resolve;
+    });
+    const fetchImplementation = vi.fn((request: Request) => {
+      if (request.method === "GET") {
+        return new Promise<Response>((resolve) => {
+          resolvePoll = resolve;
+        });
+      }
+      return Promise.resolve(
+        Response.json({
+          response_url: approved.learner_response_url,
+          expires_at: "2026-07-18T12:00:00Z",
+          workflow: approved,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={stale} />);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Approve probe" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("Learner response link")).toHaveValue(
+      approved.learner_response_url,
+    );
+    expect(screen.queryByRole("region", { name: "Teacher probe decision" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      const staleResponse = Response.json(stale);
+      const readStale = staleResponse.text.bind(staleResponse);
+      vi.spyOn(staleResponse, "text").mockImplementation(async () => {
+        const parsed = await readStale();
+        markPollParsed?.();
+        return parsed;
+      });
+      resolvePoll?.(staleResponse);
+      await pollParsed;
+      vi.useRealTimers();
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    });
+
+    expect(screen.getByLabelText("Learner response link")).toHaveValue(
+      approved.learner_response_url,
+    );
+    expect(screen.queryByRole("region", { name: "Teacher probe decision" })).not.toBeInTheDocument();
+    expect(screen.getByText("Learner handoff")).toHaveAttribute("aria-current", "step");
+  });
+
+  it("rejects a teacher-decision response whose workflow version is older than the current snapshot", async () => {
+    const current = workflowFixture("PROBE_READY");
+    const staleDecision = workflowFixture("AWAITING_RESPONSE");
+    staleDecision.version = 1;
+    staleDecision.learner_response_url = "http://localhost:3000/respond/stale-link";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          response_url: staleDecision.learner_response_url,
+          expires_at: "2026-07-18T12:00:00Z",
+          workflow: staleDecision,
+        }),
+      ),
+    );
+    render(<WorkflowPanel initialWorkflow={current} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve probe" }));
+    await waitFor(() => expect(screen.getByText(/stale decision response was ignored/i)).toBeInTheDocument());
+
+    expect(screen.getByRole("region", { name: "Teacher probe decision" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Learner response link")).not.toBeInTheDocument();
+    expect(screen.getByText("First teacher gate")).toHaveAttribute("aria-current", "step");
+  });
+
+  it.each([
+    ["CREATED", "Constrained GPT mapping", "Not reached", "Not released", "Not started"],
+    ["ANALYZING", "Constrained GPT mapping", "Not reached", "Not released", "Not started"],
+    ["PROBE_READY", "First teacher gate", "Awaiting teacher", "Not released", "Pending response"],
+    ["AWAITING_RESPONSE", "Learner handoff", "Approved for release", "Awaiting response", "Pending response"],
+    ["RESPONSE_RECORDED", "Exact evidence update", "Approved for release", "Response recorded", "Update in progress"],
+    ["RESUME_PENDING", "Exact evidence update", "Approved for release", "Response recorded", "Update in progress"],
+    ["UPDATING", "Exact evidence update", "Approved for release", "Response recorded", "Update in progress"],
+    ["AWAITING_REVIEW", "Second teacher gate", "Approved for release", "Response recorded", "Update complete"],
+    ["APPROVED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
+    ["EDITED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
+    ["REJECTED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
+    ["ABSTAINED", "First teacher gate", "Abstained", "Not released", "No update · abstained"],
+    ["FAILED", "625-domain deterministic scan", "Workflow failed", "Not released", "Update unavailable · failed"],
+  ])(
+    "maps persisted %s state to honest rail and topology progress",
+    (state, currentStage, teacherStage, learnerStage, updateStage) => {
+      const workflow = workflowFixture(state);
+      render(<WorkflowPanel initialWorkflow={workflow} />);
+
+      const tour = screen.getByRole("navigation", { name: "Live evidence tour" });
+      expect(within(tour).getByText(currentStage)).toHaveAttribute("aria-current", "step");
+      const table = screen.getByRole("table", {
+        hidden: true,
+        name: "Persisted compiler trace table",
+      });
+      expect(within(table).getByText("Teacher approval").closest("tr")).toHaveTextContent(
+        teacherStage,
+      );
+      expect(within(table).getByText("Learner response").closest("tr")).toHaveTextContent(
+        learnerStage,
+      );
+      expect(within(table).getByText("Evidence update").closest("tr")).toHaveTextContent(
+        updateStage,
+      );
+    },
+  );
 
   it("places the only probe decision after proof summary and before secondary details", () => {
     render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);

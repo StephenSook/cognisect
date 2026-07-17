@@ -1,67 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { components } from "@/lib/api/schema";
 import { createBrowserApiClient } from "@/lib/api/browser-client";
 import { CompilerProofLens } from "@/components/compiler-proof-lens";
 import { CounterfactualPreview } from "@/components/counterfactual-preview";
 import { EvidenceTopology } from "@/components/evidence-topology";
-import { JudgeTour, type JudgeTourStage } from "@/components/judge-tour";
+import { JudgeTour } from "@/components/judge-tour";
 import { LearnerQr } from "@/components/learner-qr";
 import { ProbeDecisionForm } from "@/components/probe-decision-form";
+import { workflowPresentation } from "@/lib/workflow-presentation";
 
 type Workflow = components["schemas"]["WorkflowResponse"];
 type DecisionResult = components["schemas"]["LearnerTokenResponse"];
 const TERMINAL_STATES = new Set(["APPROVED", "EDITED", "REJECTED", "ABSTAINED", "FAILED"]);
 const POLL_DELAYS = [2_000, 4_000, 8_000, 15_000] as const;
-
-function judgeStage(workflow: Workflow): JudgeTourStage {
-  const probeDeclined =
-    workflow.state === "ABSTAINED" &&
-    workflow.review_result === null &&
-    workflow.deterministic_evidence.length === 0;
-  if (probeDeclined) return "teacher-gate-one";
-  if (TERMINAL_STATES.has(workflow.state) && workflow.deterministic_evidence.length > 0) {
-    return "evidence-receipt";
-  }
-  if (workflow.state === "AWAITING_REVIEW") return "teacher-gate-two";
-  if (workflow.deterministic_evidence.length > 0) return "evidence-update";
-  if (workflow.state === "AWAITING_RESPONSE") return "learner-handoff";
-  if (workflow.state === "PROBE_READY") return "teacher-gate-one";
-  if (workflow.compiled_probe !== null) return "compiler-scan";
-  return "model-mapping";
-}
-
-function topologyStages(workflow: Workflow) {
-  const responseRecorded = workflow.deterministic_evidence.length > 0;
-  const probeDeclined =
-    workflow.state === "ABSTAINED" &&
-    workflow.review_result === null &&
-    !responseRecorded;
-  const teacherStage = workflow.state === "PROBE_READY"
-    ? "Awaiting teacher"
-    : probeDeclined
-      ? "Abstained"
-      : "Approved for release";
-  const learnerStage = responseRecorded
-    ? "Response recorded"
-    : workflow.state === "AWAITING_RESPONSE"
-      ? "Awaiting response"
-      : "Not released";
-  const evidenceStatuses = [...new Set(workflow.deterministic_evidence.map((item) => item.status))];
-  return {
-    probeDeclined,
-    teacherStage,
-    learnerStage,
-    updateStage: evidenceStatuses.length > 0
-      ? evidenceStatuses.join(" / ")
-      : probeDeclined
-        ? "No update · abstained"
-        : "Pending response",
-  };
-}
 
 export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }) {
   const workflowId = initialWorkflow.workflow_id;
@@ -72,7 +27,18 @@ export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }
   );
   const [copyStatus, setCopyStatus] = useState("");
   const [pollStatus, setPollStatus] = useState("");
-  const stages = topologyStages(workflow);
+  const stages = workflowPresentation(workflow);
+
+  const applyWorkflowSnapshot = useCallback(
+    (nextWorkflow: Workflow, nextLearnerLink = nextWorkflow.learner_response_url) => {
+      if (nextWorkflow.version < workflowRef.current.version) return false;
+      workflowRef.current = nextWorkflow;
+      setWorkflow(nextWorkflow);
+      setLearnerLink(nextLearnerLink);
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (TERMINAL_STATES.has(workflowRef.current.state)) return;
@@ -103,13 +69,13 @@ export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }
           setPollStatus("Workflow refresh is temporarily unavailable.");
           delayIndex = Math.min(delayIndex + 1, POLL_DELAYS.length - 1);
         } else {
+          const accepted = applyWorkflowSnapshot(result.data);
+          const current = workflowRef.current;
           const changed =
-            result.data.version !== previous.version || result.data.state !== previous.state;
-          workflowRef.current = result.data;
-          setWorkflow(result.data);
-          setLearnerLink(result.data.learner_response_url);
+            accepted &&
+            (current.version !== previous.version || current.state !== previous.state);
           setPollStatus("");
-          if (TERMINAL_STATES.has(result.data.state)) return;
+          if (TERMINAL_STATES.has(current.state)) return;
           delayIndex = changed ? 0 : Math.min(delayIndex + 1, POLL_DELAYS.length - 1);
         }
       } catch {
@@ -126,12 +92,10 @@ export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }
       controller?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [workflowId]);
+  }, [applyWorkflowSnapshot, workflowId]);
 
   function recordDecision(result: DecisionResult) {
-    workflowRef.current = result.workflow;
-    setWorkflow(result.workflow);
-    if (result.response_url !== null) setLearnerLink(result.response_url);
+    return applyWorkflowSnapshot(result.workflow, result.response_url);
   }
 
   async function copyLearnerLink() {
@@ -183,7 +147,7 @@ export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }
         </div>
       </dl>
 
-      <JudgeTour currentStage={judgeStage(workflow)} />
+      <JudgeTour currentStage={stages.judgeStage} />
 
       <section className="workbench-card hypotheses-card" aria-labelledby="hypotheses-heading">
         <p className="card-index mono">MODEL OUTPUT / CONSTRAINED</p>

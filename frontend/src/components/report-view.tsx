@@ -2,11 +2,13 @@ import type { components } from "@/lib/api/schema";
 import { EvidenceReceiptButton } from "@/components/evidence-receipt-button";
 import { JudgeTour } from "@/components/judge-tour";
 import { ReviewForm } from "@/components/review-form";
+import { workflowPresentation } from "@/lib/workflow-presentation";
 
 type Workflow = components["schemas"]["WorkflowResponse"];
 type Audit = components["schemas"]["AuditResponse"];
 
 export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Audit }) {
+  const presentation = workflowPresentation(workflow);
   return (
     <article className="workbench report-workbench">
       <header className="workbench-heading">
@@ -24,7 +26,7 @@ export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Aud
         <div><dt>Version</dt><dd>{workflow.version}</dd></div>
         <div><dt>Schema</dt><dd>{workflow.schema_version}</dd></div>
       </dl>
-      <JudgeTour currentStage={workflow.review_result === null ? "teacher-gate-two" : "evidence-receipt"} />
+      <JudgeTour currentStage={presentation.judgeStage} />
 
       <section className="workbench-card" aria-labelledby="report-evidence-heading">
         <p className="card-index mono">LEARNER ANSWER / EXACT MATCH</p>
