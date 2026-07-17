@@ -12,6 +12,7 @@ const RESPONSE_HEADERS = [
   "set-cookie",
 ] as const;
 const OWNER_COOKIE = "cognisect_owner";
+const MAX_PROXY_BODY_BYTES = 32_768;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -65,6 +66,15 @@ function rejectedPath(path: string[]): Response {
     headers.set("referrer-policy", "no-referrer");
   }
   return Response.json({ detail: "resource not found" }, { status: 404, headers });
+}
+
+function oversizedBody(path: string[]): Response {
+  const headers = new Headers({ "content-type": "application/json" });
+  if (isLearnerPath(path)) {
+    headers.set("cache-control", "no-store, private");
+    headers.set("referrer-policy", "no-referrer");
+  }
+  return Response.json({ detail: "request body too large" }, { status: 413, headers });
 }
 
 export function resolveBackendUrl(
@@ -131,13 +141,22 @@ export async function forwardBackendRequest({
   if (idempotencyKey !== null) requestHeaders.set("idempotency-key", idempotencyKey);
   if (cookie !== null && !isLearnerPath(path)) requestHeaders.set("cookie", cookie);
 
+  let body: ArrayBuffer | undefined;
+  if (request.method === "POST") {
+    const declaredLength = Number(request.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_PROXY_BODY_BYTES)
+      return oversizedBody(path);
+    body = await request.arrayBuffer();
+    if (body.byteLength > MAX_PROXY_BODY_BYTES) return oversizedBody(path);
+  }
+
   const base = backendUrl.replace(/\/$/, "");
   const upstream = await fetchImplementation(
     `${base}/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
     {
       method: request.method,
       headers: requestHeaders,
-      body: request.method === "POST" ? await request.arrayBuffer() : undefined,
+      body,
       redirect: "manual",
     },
   );

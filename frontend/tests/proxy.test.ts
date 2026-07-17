@@ -98,6 +98,44 @@ describe("same-origin backend proxy", () => {
     expect(upstream).toHaveBeenCalledOnce();
   });
 
+  it("rejects oversized raw bodies before forwarding and preserves learner privacy", async () => {
+    const upstream = vi.fn();
+    const oversized = "x".repeat(32_769);
+    const teacher = await forwardBackendRequest({
+      request: new Request("http://frontend.test/api/backend/v1/cases", {
+        method: "POST",
+        headers: {
+          Cookie: "cognisect_owner=owner-capability",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "oversized-teacher-body",
+        },
+        body: oversized,
+      }),
+      path: ["v1", "cases"],
+      backendUrl: "http://backend.test",
+      fetchImplementation: upstream,
+    });
+    const learner = await forwardBackendRequest({
+      request: new Request("http://frontend.test/api/backend/v1/respond/raw-token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "oversized-learner-body",
+        },
+        body: oversized,
+      }),
+      path: ["v1", "respond", "raw-token"],
+      backendUrl: "http://backend.test",
+      fetchImplementation: upstream,
+    });
+
+    expect(teacher.status).toBe(413);
+    expect(learner.status).toBe(413);
+    expect(learner.headers.get("cache-control")).toBe("no-store, private");
+    expect(learner.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("rejects methods outside the public backend surface without dispatch", async () => {
     const upstream = vi.fn();
     const response = await forwardBackendRequest({

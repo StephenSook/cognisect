@@ -4,6 +4,14 @@ This is a protocol, not a completed review. No educator identity, quotation,
 approval, validation, pilot, or adoption claim exists until consent and the
 session record say otherwise. Students and real learner records are not needed.
 
+## Current execution status
+
+As of 2026-07-17, the consented usability session has **not been conducted**.
+Research and draft-only outreach materials were prepared privately, but no
+message was sent and no educator response or approval was recorded. The release
+therefore makes no pilot, educator-review, validation, adoption, or usability
+result claim.
+
 ## Participant and consent
 
 Recruit one consenting KSU instructor, teaching assistant, tutor, or teacher

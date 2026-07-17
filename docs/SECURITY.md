@@ -1,74 +1,122 @@
-# Security, privacy, and threat model
+# Security, privacy, and release audit
 
-## Protected assets
+## Release result
 
-COGNISECT protects teacher ownership capabilities, learner response capabilities,
-de-identified educational content, learner answers, generated proposals, teacher
-edits, model request metadata, and append-only audit evidence.
+The 2026-07-17 release audit passed after two fixes: a 32 KiB pre-parse request
+body limit was added at the ASGI and same-origin proxy boundaries, and external
+access to the Render Postgres preview was blocked. The public application still
+reaches Postgres over Render's internal network and `/health` returns `ok`.
 
-## Capability design
+This is an engineering audit and stress test, not a third-party penetration test.
+The machine-readable sources are `data/security/security-audit.v1.json` and
+`data/security/production-stress-report.v1.json`.
 
-The first teacher visit receives a high-entropy owner secret in a Secure,
-HttpOnly, SameSite cookie in production. Only a purpose-specific hash is stored.
-Learner links use independent random material and a separate pepper; only their
-verifier and non-secret derivation nonce are persisted. Cross-owner reads use a
-non-enumerating not-found response.
+## Four-area source audit
 
-GET on a learner link does not consume it. POST atomically records one strict
-signed integer and advances the workflow. Replays return the original receipt or
-a state-specific conflict. Learner routes return `Cache-Control: no-store,
-private` and `Referrer-Policy: no-referrer`; the page loads no analytics or
-external QR service.
+### Authentication and authorization — pass
 
-## Application controls
+- `backend/src/cognisect/api.py:67` validates the owner capability shape and
+  returns the same non-enumerating 404 for missing or invalid authority.
+- `backend/src/cognisect/api.py:260` bootstraps before educational mutation and
+  sets a Secure, HttpOnly, SameSite=Lax production cookie.
+- `backend/src/cognisect/services.py:276` looks up only a purpose-hashed owner
+  capability. `backend/src/cognisect/repositories.py` scopes workflow access by
+  owner before any read or transition.
+- `backend/src/cognisect/services.py:897` derives a separate learner capability,
+  persists only its hash, and uses a row lock for submission.
+- `frontend/src/lib/backend-proxy.ts:132` never forwards a teacher owner cookie to
+  a learner response path.
 
-- Pydantic contracts forbid extra fields and bound all strings, integers, list
-  sizes, ranks, and model-call counts.
-- The model can select only registry template IDs; it cannot provide executable
-  expressions, source, tools, SQL, or interpreter branches.
-- There is no `eval`, `exec`, dynamic import, user-authored AST, recursion, demo
-  credential, default production secret, or authentication bypass.
-- Prompt text treats case content as untrusted data. It cannot modify registry,
-  authorization, compiler, or teacher-approval policy.
-- Structured logs omit tokens, learner answers, observed work, prompts, model
-  responses, and teacher notes. Uvicorn access logging is disabled in production.
-- Database transitions use compare-and-swap versions and append-only audit rows.
-- Production startup rejects local origins, missing model credentials, short or
-  placeholder peppers, non-Postgres databases, and non-TLS public URLs.
+The owner/learner/cross-owner matrix, missing-authority equivalence, expiration,
+GET non-consumption, replay, stale version, and deletion tests passed.
 
-## Data lifecycle
+### Database access — pass after fix
 
-Default retention is 30 days and configurable up to 365. Owner-authorized
-deletion removes the workflow and educational content; a content-free HMAC
-tombstone remains to prevent idempotency replay from recreating deleted work.
-Database backups and provider retention must be configured consistently before
-production launch.
+The Render API initially reported its default external-access configuration.
+Render documents that new databases default to `0.0.0.0/0` for external URLs.
+An empty external allowlist was applied through the official API. A credentialed
+external connection attempt is now blocked; the internal application health query
+still succeeds. The service uses the internal database URL. See Render's
+[Postgres connection rules](https://render.com/docs/postgresql-creating-connecting)
+and [private network](https://render.com/docs/private-network) documentation.
 
-## Operational threats and response
+SQLAlchemy statements use bound expressions, ownership is resolved before aggregate
+access, transitions use compare-and-swap versions, learner writes lock the token
+row, audit events are append-only, and deletion leaves only a content-free replay
+tombstone. Migration upgrade/check/downgrade/upgrade completed successfully.
 
-| Threat | Primary control | Response |
-| --- | --- | --- |
-| Link disclosure | Separate high-entropy scopes, hashes at rest | Revoke links and rotate the affected pepper |
-| Database-only compromise | No raw capabilities stored | Rotate credentials; assess whether pepper stayed separate |
-| Database + pepper compromise | Short expiry and deletion | Rotate pepper and revoke all outstanding links |
-| Duplicate or concurrent submit | Unique constraints, transaction, replay receipt | Return one receipt; investigate invariant failure |
-| Prompt injection | Closed schema/registry and no model tools | Abstain after one bounded repair |
-| Stale browser write | Expected workflow version | Return conflict and require fresh state |
-| Content in logs | Structured allowlist logging | Stop logging sink, rotate access, delete exposed records |
+### Input validation and resource bounds — pass after fix
 
-## Verification and disclosure
+`backend/src/cognisect/api_models.py` uses strict Pydantic contracts with forbidden
+extra fields and bounded operands, text, ranks, rationale, and list sizes. The
+closed interpreter accepts no executable expression, AST, import, recursion,
+dynamic dispatch, `eval`, or `exec`.
 
-Tests cover ownership matrices, replay, expiry, 50-way submission concurrency,
-append-only events, restart/resume, deletion, strict input contracts, response
-headers, and token/content redaction. Browser tests cover expired, duplicate,
-invalid, abstained, offline, and slow-request states.
+The audit found that field limits applied only after JSON parsing. The fix adds a
+32,768-byte raw-body limit in `backend/src/cognisect/body_limit.py` and mirrors it
+in `frontend/src/lib/backend-proxy.ts`. Oversized teacher and learner mutations now
+return 413 before parsing or database mutation; learner 413 responses retain
+`Cache-Control: no-store, private` and `Referrer-Policy: no-referrer`.
 
-Report security issues privately to the repository owner. Do not include a real
-teacher capability, learner URL, educational record, or provider credential in
-an issue.
+The frozen prompt treats case content as untrusted JSON-escaped evidence. Model
+calls have no tools, hidden-reasoning request, arbitrary code, or authorization
+authority; invalid structured output receives at most one bounded repair in the
+product route and otherwise abstains.
 
-## Residual limits
+### Secrets and logging — pass
 
-The local suite is not a third-party penetration test. Provider access controls,
-backups, alerting, rate limits, and production log sinks require verification on
-the deployed services. A human privacy/security review remains a release gate.
+`backend/src/cognisect/config.py` rejects non-Postgres databases, local production
+origins, missing/placeholder peppers, and missing production OpenAI credentials.
+`backend/src/cognisect/security.py` uses 32 random bytes, purpose-separated HMAC,
+and constant-time comparison. `backend/src/cognisect/safe_logging.py` allowlists
+only event name, method, route template, status, state, model ID, request ID,
+latency, and token/cost metadata. Uvicorn access logging is disabled in production.
+
+The repository hygiene scanner passed. npm audit and pip-audit each reported zero
+known vulnerabilities for the installed locked release dependencies. A zero result
+means no advisory match at audit time, not proof that every dependency is safe.
+
+## Production stress evidence
+
+The sanitized gate ran against public SHA
+`c66ef0cd84ed781cd441d3c5ad81e09a22aafe9d`:
+
+| Invariant | Result |
+| --- | ---: |
+| Learner GETs before submission | 2 successful; token not consumed |
+| Concurrent submissions | 50 |
+| Accepted | 1 |
+| Conflicted | 49 |
+| Exact replay | Original receipt returned |
+| Persisted readback | `AWAITING_REVIEW` with deterministic evidence |
+| Audit transitions | 7 |
+| Deletion | 204 |
+| Read after deletion | 404 |
+
+The report stores no workflow/case ID, receipt, owner secret, learner token, URL,
+answer, observed work, or cookie. The disposable educational record was deleted.
+
+## Verification commands
+
+```sh
+uv run pytest backend/tests -q
+uv run python scripts/check_public_repo.py
+uv run python scripts/run_production_stress.py --check
+uv run alembic check
+uv run --with pip-audit pip-audit --local --skip-editable
+npm audit --audit-level=high
+npm run test:e2e
+```
+
+## Data lifecycle and residual limits
+
+Default application retention is 30 days and configurable to 365. Owner-authorized
+deletion removes workflow educational content and checkpoints; a content-free HMAC
+tombstone prevents an old idempotency command from recreating it.
+
+The free preview has no documented distributed application rate limiter. Bounded
+payloads, strict schemas, one-response capabilities, provider timeouts, three-call
+model limits, and a cost circuit breaker reduce abuse impact but do not replace a
+production edge rate limiter. Free-tier backups, high availability, alerting, and
+long-term availability are not production-grade guarantees. Provider access and
+retention settings should be re-audited before any real educational deployment.

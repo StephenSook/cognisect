@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from pydantic import SecretStr
+
 from cognisect.api import create_app
 from cognisect.config import Settings
 
@@ -18,10 +20,10 @@ def main() -> None:
     settings = Settings(
         app_env="test",
         database_url="postgresql+psycopg://openapi:openapi@postgres:5432/openapi",
-        owner_secret_pepper="openapi-owner-pepper-value-32chars",
-        learner_token_pepper="openapi-learner-pepper-value-32ch",
+        owner_secret_pepper=SecretStr("openapi-owner-pepper-value-32chars"),
+        learner_token_pepper=SecretStr("openapi-learner-pepper-value-32ch"),
         public_app_url="https://cognisect.example",
-        openai_api_key="",
+        openai_api_key=SecretStr(""),
     )
     schema = create_app(settings=settings, analyzer=None).openapi()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

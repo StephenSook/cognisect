@@ -1,0 +1,52 @@
+{
+  "schema_version": "cognisect.security-audit.v1",
+  "audited_at": "2026-07-17T06:10:00Z",
+  "production_stress_report": "data/security/production-stress-report.v1.json",
+  "tested_production_release_sha": "c66ef0cd84ed781cd441d3c5ad81e09a22aafe9d",
+  "areas": {
+    "authentication_and_authorization": {
+      "status": "pass",
+      "evidence": [
+        "Owner capabilities are Secure, HttpOnly, SameSite=Lax cookies in production and are hashed at rest.",
+        "Learner capabilities are purpose-separated, hashed at rest, omitted from learner-request owner forwarding, and scoped to one response.",
+        "Cross-owner reads and mutations return the same non-enumerating 404 as missing authority."
+      ]
+    },
+    "database_access": {
+      "status": "pass_after_fix",
+      "finding": "The preview database initially retained Render's default external-access rule.",
+      "fix": "Applied an empty external IP allowlist; a credentialed external connection is blocked while the service's internal health query remains successful.",
+      "internal_health_status": "ok",
+      "external_connection_status": "blocked"
+    },
+    "input_validation_and_resource_bounds": {
+      "status": "pass_after_fix",
+      "finding": "Schema fields were bounded, but raw HTTP request bodies had no pre-parse byte cap.",
+      "fix": "Added a 32768-byte limit at both the public ASGI boundary and same-origin proxy, including private no-store learner error responses.",
+      "max_request_body_bytes": 32768
+    },
+    "secrets_and_logging": {
+      "status": "pass",
+      "evidence": [
+        "Production startup rejects missing, short, placeholder, or demo secrets.",
+        "Structured request logs record route templates and status only.",
+        "Repository hygiene found no tracked credentials, capabilities, private educational content, or educator identity."
+      ]
+    }
+  },
+  "verification": {
+    "targeted_security_tests_passed": 145,
+    "targeted_security_tests_failed": 0,
+    "playwright_journeys_passed": 8,
+    "npm_known_vulnerabilities": 0,
+    "python_known_vulnerabilities": 0,
+    "openapi_drift": false,
+    "migration_round_trip": "pass",
+    "repository_hygiene": "pass"
+  },
+  "residual_limits": [
+    "This is not a third-party penetration test.",
+    "The free preview has no documented distributed application rate limiter; provider and cost circuit breakers remain the primary abuse bounds.",
+    "Free-tier backups, high availability, alerting, and long-term retention are not production-grade guarantees."
+  ]
+}

@@ -35,6 +35,7 @@ from cognisect.api_models import (
     VersionResponse,
     WorkflowResponse,
 )
+from cognisect.body_limit import RequestBodyLimitMiddleware
 from cognisect.config import Settings, is_production
 from cognisect.database import create_engine, create_session_factory
 from cognisect.db_models import SCHEMA_VERSION
@@ -148,6 +149,7 @@ def create_app(  # noqa: C901, PLR0915
         openapi_url=None,
         lifespan=lifespan,
     )
+    app.add_middleware(RequestBodyLimitMiddleware)
     app.state.settings = resolved_settings
     app.state.session_factory = session_factory
     app.state.workflow_service = service

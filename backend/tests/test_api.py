@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import func, select, update
 
 from cognisect.api import OWNER_COOKIE_NAME, create_app
+from cognisect.body_limit import MAX_REQUEST_BODY_BYTES
 from cognisect.config import Settings
 from cognisect.database import create_session_factory
 from cognisect.db_models import (
@@ -153,6 +154,37 @@ async def test_mutation_requires_bounded_idempotency_header(client):
         "/v1/cases", headers={"Idempotency-Key": "x" * 201}, json=case_payload()
     )
     assert {missing.status_code, too_short.status_code, too_long.status_code} == {422}
+
+
+@pytest.mark.postgres
+async def test_raw_request_body_limit_rejects_before_parsing_with_learner_privacy_headers(
+    client, db_engine
+):
+    oversized = b"{" + (b"x" * MAX_REQUEST_BODY_BYTES)
+    teacher = await client.post(
+        "/v1/cases",
+        headers={
+            "Content-Type": "application/json",
+            "Idempotency-Key": "oversized-teacher-body",
+        },
+        content=oversized,
+    )
+    learner = await client.post(
+        "/v1/respond/not-a-capability",
+        headers={
+            "Content-Type": "application/json",
+            "Idempotency-Key": "oversized-learner-body",
+        },
+        content=oversized,
+    )
+
+    assert teacher.status_code == learner.status_code == 413
+    assert teacher.json() == learner.json() == {"detail": "request body too large"}
+    assert learner.headers["cache-control"] == "no-store, private"
+    assert learner.headers["referrer-policy"] == "no-referrer"
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        assert await session.scalar(select(func.count(CaseRecord.id))) == 0
 
 
 @pytest.mark.postgres

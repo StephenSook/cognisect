@@ -1,0 +1,20 @@
+{
+  "accepted_submissions": 1,
+  "audit_event_count": 7,
+  "base_origin": "https://cognisect.vercel.app",
+  "concurrent_submissions": 50,
+  "conflicting_submissions": 49,
+  "deletion_status": 204,
+  "deterministic_evidence_present": true,
+  "educational_record_deleted": true,
+  "exact_replay_status": 200,
+  "generated_at": "2026-07-17T05:55:32+00:00",
+  "health_status": 200,
+  "persisted_state": "AWAITING_REVIEW",
+  "post_deletion_read_status": 404,
+  "pre_submit_gets": 2,
+  "provider_sha_verified": true,
+  "schema_version": "cognisect.production-stress-report.v1",
+  "served_version": "0.1.0",
+  "tested_release_sha": "c66ef0cd84ed781cd441d3c5ad81e09a22aafe9d"
+}

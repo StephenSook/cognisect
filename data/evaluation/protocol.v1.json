@@ -1,0 +1,40 @@
+{
+  "schema_version": "cognisect.evaluation-protocol.v1",
+  "frozen_at": "2026-07-17T05:30:00Z",
+  "record_count": 6,
+  "tiers": {
+    "educator_authored": 6
+  },
+  "learner_response_count": 0,
+  "manifest": {
+    "path": "data/evaluation/manifest.v1.json",
+    "sha256": "d246b3557efa001a2f537913658b56e0df752bfb36bd461f8a7bf65b555953d0"
+  },
+  "provenance_ledger": {
+    "path": "data/provenance/public-cases.v1.json",
+    "sha256": "a2a3a4de3039d591994b0679d42ed31b35009e030bdf183e346d6f49859bc67a"
+  },
+  "prompt_source": {
+    "path": "backend/src/cognisect/prompts/analysis_v1.py",
+    "sha256": "c4f6044b18af78f3be141f1d72b8a76db3abf841c6273fcc33872fb696c39bc1",
+    "version": "analysis_prompt.v2"
+  },
+  "registry_version": "rule_registry.v1",
+  "compiler_version": "counterexample_compiler.v1",
+  "route_version": "model_route.v1",
+  "model_ids": {
+    "luna": "gpt-5.6-luna",
+    "terra": "gpt-5.6-terra",
+    "sol": "gpt-5.6-sol"
+  },
+  "max_model_calls_per_record": 2,
+  "comparisons": [
+    "leave_one_question_out_majority_label",
+    "direct_gpt_5_6_structured_classification",
+    "gpt_5_6_hypothesis_mapping_without_compiler",
+    "gpt_5_6_plus_compiler_without_learner_response",
+    "full_interactive_workflow"
+  ],
+  "full_interactive_workflow_status": "NOT RUN — no real learner responses were collected",
+  "claim_scope": "Six author-reviewed, educator-authored fixtures support a frozen harness comparison only. They contain no authentic learner records or learner responses and support no model-accuracy generalization, educator approval, classroom, adoption, time-saving, or learning-effect claim."
+}
