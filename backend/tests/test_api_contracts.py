@@ -108,6 +108,48 @@ def test_non_custom_case_does_not_require_attestation():
     assert request.deidentified_attestation is False
 
 
+def test_provenance_record_id_is_strict_and_only_allowed_for_educator_authored() -> None:
+    request = CreateCaseRequest.model_validate(
+        {
+            "source_tier": "educator_authored",
+            "provenance_record_id": "cognisect-ea-001",
+            "problem": {"a": -3, "b": 5},
+            "observed_work": "-3 - 5 = 2",
+        }
+    )
+    assert request.provenance_record_id == "cognisect-ea-001"
+
+    for provenance_record_id in (
+        "",
+        " cognisect-ea-001",
+        "cognisect-ea-001 ",
+        "cognisect/ea/001",
+        "x" * 81,
+        1,
+    ):
+        with pytest.raises(ValidationError):
+            CreateCaseRequest.model_validate(
+                {
+                    "source_tier": "educator_authored",
+                    "provenance_record_id": provenance_record_id,
+                    "problem": {"a": -3, "b": 5},
+                    "observed_work": "-3 - 5 = 2",
+                }
+            )
+
+    for source_tier in ("custom", "authentic", "synthetic", "mixed", "published_exemplar"):
+        with pytest.raises(ValidationError, match="provenance_record_id"):
+            CreateCaseRequest.model_validate(
+                {
+                    "source_tier": source_tier,
+                    "provenance_record_id": "cognisect-ea-001",
+                    "problem": {"a": -3, "b": 5},
+                    "observed_work": "-3 - 5 = 2",
+                    "deidentified_attestation": source_tier == "custom",
+                }
+            )
+
+
 @pytest.mark.parametrize("decision", ["approved", "edited"])
 def test_positive_review_requires_non_empty_note(decision):
     with pytest.raises(ValidationError):
@@ -161,6 +203,7 @@ def test_learner_dto_has_only_approved_problem_constraints_and_expiry():
         "evidence",
         "model_request_id",
         "teacher_notes",
+        "learner_rationale",
     }
     assert fields.isdisjoint(forbidden)
 
@@ -177,6 +220,7 @@ def test_learner_schema_never_includes_teacher_workflow_fields() -> None:
         "predictions",
         "review_result",
         "source_tier",
+        "learner_rationale",
     ):
         assert teacher_field not in schema_text
 

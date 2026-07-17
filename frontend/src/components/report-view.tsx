@@ -39,6 +39,11 @@ export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Aud
           </ul>
         )}
         <p className="proposal-copy"><strong>Generated proposal</strong>{workflow.generated_proposal ?? "Not available"}</p>
+        {workflow.learner_rationale !== null ? (
+          <p className="proposal-copy">
+            <strong>Review-only learner rationale</strong>{workflow.learner_rationale}
+          </p>
+        ) : null}
         {workflow.edited_text ? <p>Teacher-edited text: {workflow.edited_text}</p> : null}
       </section>
 

@@ -19,6 +19,15 @@ SourceTier = Literal[
     "custom",
 ]
 NonEmptyText = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=10_000)]
+ProvenanceRecordId = Annotated[
+    str,
+    StringConstraints(
+        strict=True,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    ),
+]
 
 
 class SignedProblemDTO(StrictContractModel):
@@ -35,12 +44,16 @@ class CreateCaseRequest(StrictContractModel):
     problem: SignedProblemDTO
     observed_work: NonEmptyText
     deidentified_attestation: bool = False
+    provenance_record_id: ProvenanceRecordId | None = None
 
     @model_validator(mode="after")
     def custom_content_is_attested(self) -> Self:
         """Require an affirmative de-identification attestation for custom content."""
         if self.source_tier == "custom" and self.deidentified_attestation is not True:
             msg = "custom cases require deidentified_attestation=true"
+            raise ValueError(msg)
+        if self.provenance_record_id is not None and self.source_tier != "educator_authored":
+            msg = "provenance_record_id is allowed only for educator_authored cases"
             raise ValueError(msg)
         return self
 
@@ -218,6 +231,7 @@ class WorkflowResponse(StrictContractModel):
     workflow_id: UUID
     case_id: UUID
     source_tier: SourceTier
+    provenance_record_id: str | None
     state: str
     schema_version: str
     registry_version: str
@@ -232,6 +246,7 @@ class WorkflowResponse(StrictContractModel):
     accepted_hypotheses: list[AcceptedHypothesisResponse]
     compiled_probe: CompiledProbeResponse | None
     deterministic_evidence: list[EvidenceStatusResponse]
+    learner_rationale: str | None
     review_result: ReviewResultResponse | None
     generated_proposal: str | None = None
     edited_text: str | None = None

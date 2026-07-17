@@ -41,11 +41,13 @@ describe("lab form", () => {
   it("offers a provenance-backed public exemplar and safe free-entry tiers", async () => {
     render(<LabForm />);
     const user = userEvent.setup();
-    expect(
-      screen.getAllByRole("option").map((option) => (option as HTMLOptionElement).value),
-    ).toEqual(["public_exemplar", "educator_authored", "custom"]);
-
-    await user.selectOptions(screen.getByLabelText("Case source"), "public_exemplar");
+    const sourceSelect = screen.getByLabelText("Case source") as HTMLSelectElement;
+    expect(Array.from(sourceSelect.options, (option) => option.value)).toEqual([
+      "public_exemplar",
+      "educator_authored",
+      "custom",
+    ]);
+    expect(sourceSelect).toHaveValue("public_exemplar");
     expect(screen.getByLabelText("Public case")).toHaveValue("cognisect-ea-001");
     expect(screen.getByLabelText("First integer")).toHaveValue("-3");
     expect(screen.getByLabelText("Second integer")).toHaveValue("5");
@@ -61,6 +63,44 @@ describe("lab form", () => {
     expect(
       screen.getByText(/Educator-authored public exemplar cognisect-ea-006/i),
     ).toBeInTheDocument();
+  });
+
+  it("sends the selected public provenance ID and null for educator free entry", async () => {
+    const created = {
+      case_id: "00000000-0000-4000-8000-000000000010",
+      workflow_id: "00000000-0000-4000-8000-000000000011",
+    };
+    const publicFetch = vi
+      .fn<(request: Request) => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json(created, { status: 201 }))
+      .mockResolvedValueOnce(Response.json(workflowFixture()));
+    vi.stubGlobal("fetch", publicFetch);
+    const publicForm = render(<LabForm />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Create and analyze" }));
+    await waitFor(() => expect(publicFetch).toHaveBeenCalledTimes(2));
+    expect(await (publicFetch.mock.calls[0]?.[0] as Request).json()).toMatchObject({
+      source_tier: "educator_authored",
+      provenance_record_id: "cognisect-ea-001",
+    });
+    publicForm.unmount();
+
+    const freeFetch = vi
+      .fn<(request: Request) => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json(created, { status: 201 }))
+      .mockResolvedValueOnce(Response.json(workflowFixture()));
+    vi.stubGlobal("fetch", freeFetch);
+    render(<LabForm />);
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Case source"), "educator_authored");
+    await user.type(screen.getByLabelText("First integer"), "-3");
+    await user.type(screen.getByLabelText("Second integer"), "5");
+    await user.type(screen.getByLabelText("Observed work"), "teacher-authored free entry");
+    await user.click(screen.getByRole("button", { name: "Create and analyze" }));
+    await waitFor(() => expect(freeFetch).toHaveBeenCalledTimes(2));
+    expect(await (freeFetch.mock.calls[0]?.[0] as Request).json()).toMatchObject({
+      source_tier: "educator_authored",
+      provenance_record_id: null,
+    });
   });
 
   it("preserves a cryptographically random idempotency key for exact retry", async () => {

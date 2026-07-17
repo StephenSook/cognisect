@@ -313,6 +313,8 @@ export interface components {
             /** Observed Work */
             observed_work: string;
             problem: components["schemas"]["SignedProblemDTO"];
+            /** Provenance Record Id */
+            provenance_record_id?: string | null;
             /**
              * Source Tier
              * @enum {string}
@@ -550,6 +552,8 @@ export interface components {
             edited_text?: string | null;
             /** Generated Proposal */
             generated_proposal?: string | null;
+            /** Learner Rationale */
+            learner_rationale: string | null;
             /** Learner Response Url */
             learner_response_url: string | null;
             /** Model Request Id */
@@ -558,6 +562,8 @@ export interface components {
             model_snapshot: string | null;
             /** Prompt Version */
             prompt_version: string;
+            /** Provenance Record Id */
+            provenance_record_id: string | null;
             /** Registry Version */
             registry_version: string;
             review_result: components["schemas"]["ReviewResultResponse"] | null;

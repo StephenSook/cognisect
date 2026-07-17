@@ -79,6 +79,7 @@ class CaseRecord(Timestamped, Base):
         PGUUID(as_uuid=True), ForeignKey("owners.id", ondelete="CASCADE"), index=True
     )
     source_tier: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance_record_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     original_a: Mapped[int] = mapped_column(Integer, nullable=False)
     original_b: Mapped[int] = mapped_column(Integer, nullable=False)
     observed_work: Mapped[str] = mapped_column(Text, nullable=False)

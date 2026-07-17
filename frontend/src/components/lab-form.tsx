@@ -25,13 +25,15 @@ const SOURCE_OPTIONS: { value: SourceMode; label: string }[] = [
 
 export function LabForm() {
   const router = useRouter();
-  const [sourceMode, setSourceMode] = useState<SourceMode>("educator_authored");
+  const [sourceMode, setSourceMode] = useState<SourceMode>("public_exemplar");
   const [publicCaseId, setPublicCaseId] = useState(
     DEFAULT_PUBLIC_EDUCATOR_CASE.record_id,
   );
-  const [first, setFirst] = useState("");
-  const [second, setSecond] = useState("");
-  const [observedWork, setObservedWork] = useState("");
+  const [first, setFirst] = useState(String(DEFAULT_PUBLIC_EDUCATOR_CASE.content.problem.a));
+  const [second, setSecond] = useState(String(DEFAULT_PUBLIC_EDUCATOR_CASE.content.problem.b));
+  const [observedWork, setObservedWork] = useState(
+    DEFAULT_PUBLIC_EDUCATOR_CASE.content.observed_work,
+  );
   const [attested, setAttested] = useState(false);
   const [pending, setPending] = useState(false);
   const [commandLocked, setCommandLocked] = useState(false);
@@ -91,6 +93,7 @@ export function LabForm() {
     }
     return {
       source_tier: sourceMode === "custom" ? "custom" : "educator_authored",
+      provenance_record_id: sourceMode === "public_exemplar" ? publicCaseId : null,
       problem: { a: firstInteger, b: secondInteger },
       observed_work: trimmedWork,
       deidentified_attestation: sourceMode === "custom" ? attested : false,

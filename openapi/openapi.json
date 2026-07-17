@@ -314,6 +314,20 @@
           "problem": {
             "$ref": "#/components/schemas/SignedProblemDTO"
           },
+          "provenance_record_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Record Id"
+          },
           "source_tier": {
             "enum": [
               "authentic",
@@ -849,6 +863,17 @@
             ],
             "title": "Generated Proposal"
           },
+          "learner_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Rationale"
+          },
           "learner_response_url": {
             "anyOf": [
               {
@@ -885,6 +910,17 @@
           "prompt_version": {
             "title": "Prompt Version",
             "type": "string"
+          },
+          "provenance_record_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Record Id"
           },
           "registry_version": {
             "title": "Registry Version",
@@ -939,6 +975,7 @@
           "workflow_id",
           "case_id",
           "source_tier",
+          "provenance_record_id",
           "state",
           "schema_version",
           "registry_version",
@@ -953,6 +990,7 @@
           "accepted_hypotheses",
           "compiled_probe",
           "deterministic_evidence",
+          "learner_rationale",
           "review_result"
         ],
         "title": "WorkflowResponse",

@@ -510,6 +510,7 @@ class WorkflowService:
             case = CaseRecord(
                 owner_id=owner.id,
                 source_tier=request.source_tier,
+                provenance_record_id=request.provenance_record_id,
                 original_a=request.problem.a,
                 original_b=request.problem.b,
                 observed_work=request.observed_work,
@@ -1417,6 +1418,11 @@ class WorkflowService:
             review = await session.scalar(
                 select(TeacherReviewRecord).where(TeacherReviewRecord.workflow_id == workflow_id)
             )
+            learner_response = await session.scalar(
+                select(LearnerResponseRecord).where(
+                    LearnerResponseRecord.workflow_id == workflow_id
+                )
+            )
             active_token = None
             if workflow.state == WorkflowState.AWAITING_RESPONSE:
                 active_token = await session.scalar(
@@ -1451,6 +1457,7 @@ class WorkflowService:
                 workflow_id=workflow.id,
                 case_id=workflow.case_id,
                 source_tier=cast("SourceTier", case.source_tier),
+                provenance_record_id=case.provenance_record_id,
                 state=workflow.state.value,
                 schema_version=workflow.schema_version,
                 registry_version=workflow.registry_version,
@@ -1500,6 +1507,9 @@ class WorkflowService:
                     EvidenceStatusResponse.model_validate(item)
                     for item in (proposal.evidence if proposal is not None else [])
                 ],
+                learner_rationale=(
+                    learner_response.rationale if learner_response is not None else None
+                ),
                 review_result=(
                     ReviewResultResponse(
                         decision=cast("ReviewDecision", review.decision),

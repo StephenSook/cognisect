@@ -112,6 +112,12 @@ def test_generated_and_teacher_edited_text_are_separate_records():
     assert "generated_text" not in review_columns
 
 
+def test_case_provenance_is_a_nullable_column_for_historical_rows() -> None:
+    provenance_column = inspect(CaseRecord).columns.provenance_record_id
+    assert provenance_column.nullable is True
+    assert provenance_column.type.length == 80
+
+
 def test_model_attempt_journal_has_stable_content_free_identity_and_staged_results():
     call_columns = set(inspect(ModelCallRecord).columns.keys())
     result_columns = set(inspect(AnalysisStepResultRecord).columns.keys())

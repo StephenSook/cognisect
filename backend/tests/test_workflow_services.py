@@ -152,6 +152,47 @@ async def test_owner_creation_hashes_secret_and_binds_case_and_workflow(
 
 
 @pytest.mark.postgres
+async def test_case_provenance_is_persisted_and_returned_only_on_owner_workflow_dto(
+    service, db_engine
+):
+    request = CreateCaseRequest(
+        source_tier="educator_authored",
+        provenance_record_id="cognisect-ea-001",
+        problem={"a": -3, "b": 5},
+        observed_work="-3 - 5 = 2",
+    )
+    created = await service.create_case(request, idempotency_key="provenance-case-key")
+
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        case = await session.get(CaseRecord, created.case_id)
+    assert case is not None
+    assert case.provenance_record_id == "cognisect-ea-001"
+
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.provenance_record_id == "cognisect-ea-001"
+
+
+@pytest.mark.postgres
+async def test_free_educator_entry_preserves_null_provenance(service, db_engine) -> None:
+    request = CreateCaseRequest(
+        source_tier="educator_authored",
+        problem={"a": -3, "b": 5},
+        observed_work="teacher-authored free entry",
+    )
+    created = await service.create_case(request, idempotency_key="free-entry-case-key")
+
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        case = await session.get(CaseRecord, created.case_id)
+    assert case is not None
+    assert case.provenance_record_id is None
+
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.provenance_record_id is None
+
+
+@pytest.mark.postgres
 async def test_analysis_persists_probe_and_predictions_before_any_token(
     service, db_engine, case_request
 ):
@@ -600,6 +641,29 @@ async def test_full_loop_review_and_audit_readback(service, case_request):
         WorkflowState.APPROVED,
     ]
     assert [event.version for event in events] == list(range(1, 9))
+
+
+@pytest.mark.postgres
+async def test_owner_workflow_dto_returns_review_only_learner_rationale(service, case_request):
+    created, workflow = await prepare_probe(service, case_request)
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=True),
+        idempotency_key="rationale-approve",
+    )
+    learner = await service.get_learner_probe(approved.token)
+    await service.submit_learner_response(
+        token=approved.token,
+        request=LearnerSubmitRequest(
+            answer=learner.problem.a - learner.problem.b,
+            rationale="I kept the second sign and counted left.",
+        ),
+        idempotency_key="rationale-submit",
+    )
+
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.learner_rationale == "I kept the second sign and counted left."
 
 
 @pytest.mark.postgres

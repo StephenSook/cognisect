@@ -16,6 +16,7 @@ describe("teacher report content", () => {
       { template_id: "add_subtrahend", rank: 1, status: "weakened" },
       { template_id: "absolute_difference", rank: 2, status: "supported" },
     ];
+    workflow.learner_rationale = "I kept the second sign and counted left.";
     render(
       <ReportView
         workflow={workflow}
@@ -42,6 +43,9 @@ describe("teacher report content", () => {
     );
     expect(screen.getByRole("button", { name: "Save review" })).toBeInTheDocument();
     expect(screen.getByText(/CREATED → ANALYZING/)).toBeInTheDocument();
+    expect(screen.getByText("Review-only learner rationale").parentElement).toHaveTextContent(
+      "I kept the second sign and counted left.",
+    );
   });
 });
 
