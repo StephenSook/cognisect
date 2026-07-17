@@ -68,6 +68,22 @@ def test_deployment_manifests_do_not_embed_credentials_or_demo_bypasses() -> Non
     )
 
 
+def test_preview_blueprint_defaults_to_free_resources_and_documents_limits() -> None:
+    render = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    deployment = (ROOT / "docs" / "DEPLOYMENT.md").read_text(encoding="utf-8")
+
+    assert render.count("plan: free") == 2
+    assert "plan: starter" not in render
+    assert "plan: basic-256mb" not in render
+    assert (
+        'dockerCommand: "/bin/sh -c ./scripts/migrate.sh && exec ./scripts/run-backend.sh"'
+        in render
+    )
+    assert "preDeployCommand:" not in render
+    assert "time-limited public preview" in deployment
+    assert "cognisect.vercel.app" in deployment
+
+
 def test_vercel_link_metadata_is_ignored() -> None:
     ignored_paths = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 

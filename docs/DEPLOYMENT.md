@@ -1,15 +1,22 @@
 # Deployment and incident runbook
 
-No public deployment is claimed by this document. It defines the exact operator
-steps and evidence required before that claim is enabled.
+COGNISECT has a time-limited public preview at
+[cognisect.vercel.app](https://cognisect.vercel.app). It is a release candidate,
+not a durable classroom production claim. The preview was verified through a
+logged-out desktop teacher browser and an isolated mobile learner browser; its
+smoke workflow was deleted after persisted readback.
 
 ## Topology
 
 - Vercel: one Next.js project with repository Root Directory set to `frontend`.
-- Render: `cognisect-api` paid Docker web service and `cognisect-postgres` paid
-  Postgres in `ohio`, connected by Render's internal connection string.
+- Vercel's **Include source files outside of the Root Directory** setting is
+  enabled because the frontend imports the cleared provenance ledger.
+- Render: a free Docker web service and free Postgres in `ohio`, connected by
+  Render's internal connection string.
 - Render database public IP allowlist: empty.
-- Render deploy trigger: checks must pass; migrations run as `preDeployCommand`.
+- Render deploy trigger: checks must pass. The free preview runs migrations in
+  the Docker start command before starting Uvicorn because pre-deploy commands
+  are reserved for an upgraded service topology.
 
 The checked-in files follow the current official [Render Blueprint
 specification](https://render.com/docs/blueprint-spec) and [Vercel monorepo
@@ -17,12 +24,13 @@ root-directory guidance](https://vercel.com/docs/monorepos).
 
 ## Required operator configuration
 
-1. Create or sync `render.yaml`; confirm the service and database are paid and in
-   the same region.
+1. Create or sync `render.yaml`; confirm the service and database are free and in
+   the same region. Upgrade both deliberately before making durability or backup
+   claims.
 2. Set `OPENAI_API_KEY` and the final HTTPS `PUBLIC_APP_URL` in Render. Generated
    owner and learner peppers must be distinct and retained outside the database.
 3. Import the GitHub repository into a dedicated Vercel project and set Root
-   Directory to `frontend`.
+   Directory to `frontend`; enable source files outside that directory.
 4. Set `COGNISECT_BACKEND_URL` to the Render HTTPS origin and
    `COGNISECT_FRONTEND_ENV=production` in Vercel. Do not expose either pepper or
    the OpenAI key to Vercel or to `NEXT_PUBLIC_*` variables.
@@ -67,6 +75,8 @@ Fixture analyzers and local test servers do not satisfy production evidence.
 
 ## Operational expiry
 
-Keep the judged service warm and monitored through the competition's confirmed
-availability deadline. Recheck the live Devpost dates rather than relying on a
-historical PDF before scheduling shutdown.
+The current free Postgres resource reports an expiry date of August 16, 2026.
+Free services can cold-start and do not establish backup, uptime, or durability
+evidence. Keep the judged preview monitored through the competition's confirmed
+availability deadline, then recheck the live Devpost dates and provider state
+before scheduling an upgrade or shutdown.

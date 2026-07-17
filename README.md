@@ -8,10 +8,17 @@ decide authorization, probe release, evidence status, or teacher approval.
 
 ## Current evidence status
 
-The repository is a locally verified release candidate. Public production,
-live-model benchmark, learner-response, educator-review, and learning-effect
-claims remain disabled. Six checked-in cases are clearly labeled original
-educator-authored fixtures and validate only the deterministic public harness.
+The repository and a [time-limited public preview](https://cognisect.vercel.app)
+are verified release candidates. The preview uses free Vercel, Render web, and
+Render Postgres resources, so it may cold-start and is not represented as a
+durable classroom production service. A logged-out, two-context Playwright smoke
+has completed the teacher, isolated mobile learner, review, runtime-evidence,
+and deletion loop with persisted `gpt-5.6-terra` telemetry.
+
+Live-model benchmark, authentic learner-response, educator-review, adoption,
+and learning-effect claims remain disabled. Six checked-in cases are clearly
+labeled original educator-authored fixtures and validate only the deterministic
+public harness.
 
 ## Local backend
 

@@ -1,7 +1,8 @@
 # Submission fact sheet
 
-Status: local release candidate; production, live-model benchmark, educator
-review, video, and submission evidence are not yet recorded.
+Status: local release candidate plus time-limited public preview. Durable
+production, live-model benchmark, authentic learner-response, educator review,
+video, and submission evidence are not yet recorded.
 
 ## Code-audited facts
 
@@ -19,21 +20,28 @@ review, video, and submission evidence are not yet recorded.
   records and 0 collected learner responses.
 - Deterministic fixture harness: 6/6 registry accepted, 6/6 separating probes,
   and 6/6 reproduced specification hashes. It makes 0 model calls.
-- Frontend verification at commit `b8a68f5`: 48 Vitest tests and 8 Playwright
-  journeys passed; npm audit reported 0 known vulnerabilities.
-- Backend verification for this release slice: 250 tests passed against Postgres
-  in the fresh full suite.
+- Frontend release verification: 48 Vitest tests and 8 local desktop/mobile
+  Playwright journeys passed; npm audit reported 0 known vulnerabilities.
+- Backend release verification: 252 tests passed against Postgres in the fresh
+  full suite.
+- CI verification: exactly 6 required GitHub checks completed successfully.
+- Public preview: Vercel and Render were read back at the same merged SHA;
+  same-origin `/health` and `/version` returned the served release metadata.
+- Public browser smoke: a logged-out desktop teacher and isolated mobile learner
+  completed one real-model workflow, duplicate submission returned the expected
+  conflict, the teacher decision and audit survived reload, and the test record
+  was deleted.
 
 ## Evidence still required
 
 | Claim area | Current status | Enabling evidence |
 | --- | --- | --- |
-| Public production | Not claimed | Logged-out smoke and served-SHA match |
-| GPT-5.6 live calls | Not claimed | Persisted request/model telemetry |
+| Public preview | Verified, time-limited free tier | Upgrade and operational evidence for durable production |
+| GPT-5.6 operational call | Verified for preview smoke | Frozen benchmark for performance claims |
 | Mapping benchmark | Not claimed | Frozen cleared benchmark and baselines |
-| Interactive evidence | Not claimed | Real learner responses under consent |
+| Authentic learner evidence | Not claimed | Real learner responses under consent |
 | Educator usability | Not claimed | Completed consented review and rerun |
 | Adoption or learning effect | Not claimed | Separate appropriately designed study |
 
 All README, UI, video, and submission numbers must be copied from a regenerated,
-code-audited version of this file after production and evaluation gates finish.
+code-audited version of this file after the remaining evaluation gates finish.
