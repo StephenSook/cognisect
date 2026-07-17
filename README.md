@@ -15,10 +15,12 @@ durable classroom production service. A logged-out, two-context Playwright smoke
 has completed the teacher, isolated mobile learner, review, runtime-evidence,
 and deletion loop with persisted `gpt-5.6-terra` telemetry.
 
-Live-model benchmark, authentic learner-response, educator-review, adoption,
-and learning-effect claims remain disabled. Six checked-in cases are clearly
-labeled original educator-authored fixtures and validate only the deterministic
-public harness.
+A frozen comparison made 12 live model calls across six checked-in,
+educator-authored fixtures. Terra and Sol produced schema-valid,
+registry-accepted mappings for all six, and the compiler generated six separating,
+reproducible probes. This small project-authored tier is a harness result, not a
+generalized model-accuracy estimate. Authentic learner-response, educator-review,
+adoption, and learning-effect claims remain disabled.
 
 ## Local backend
 
@@ -118,5 +120,6 @@ and duplicate learner submissions, and abstention.
 - [Security and privacy](docs/SECURITY.md)
 - [Deployment runbook](docs/DEPLOYMENT.md)
 - [Educator review protocol](docs/EDUCATOR_REVIEW.md)
-- [Build log](docs/BUILD_LOG.md) and [submission fact sheet](docs/FACT_SHEET.md)
+- [Build log](docs/BUILD_LOG.md), [submission fact sheet](docs/FACT_SHEET.md), and
+  [submission copy](docs/SUBMISSION_COPY.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md) and [dependency licenses](docs/DEPENDENCY_LICENSES.md)

@@ -14,6 +14,7 @@ REQUIRED_PUBLIC_DOCS = {
     "docs/BUILD_LOG.md",
     "docs/DEPLOYMENT.md",
     "docs/FACT_SHEET.md",
+    "docs/SUBMISSION_COPY.md",
     "docs/EDUCATOR_REVIEW.md",
 }
 
