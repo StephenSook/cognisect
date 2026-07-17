@@ -47,6 +47,7 @@ from cognisect.services import (
 )
 
 _MAX_OUTPUT_TOKENS = 1_200
+_UNSUPPORTED_PROVIDER_SCHEMA_KEYS = frozenset({"uniqueItems"})
 _Purpose = Literal["luna", "terra", "sol"]
 _T = TypeVar("_T", bound=BaseModel)
 
@@ -104,6 +105,23 @@ def _schema_name(text_format: type[BaseModel]) -> str:
         RuleMappingV1: "rule_mapping_v1",
     }
     return names[text_format]
+
+
+def _provider_json_schema(text_format: type[BaseModel]) -> dict[str, object]:
+    """Remove unsupported provider keywords without weakening runtime validation."""
+
+    def sanitize(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: sanitize(nested)
+                for key, nested in value.items()
+                if key not in _UNSUPPORTED_PROVIDER_SCHEMA_KEYS
+            }
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        return value
+
+    return cast("dict[str, object]", sanitize(text_format.model_json_schema()))
 
 
 def _usage_from_response(response: object) -> TokenUsage:
@@ -301,7 +319,7 @@ class ResponsesAnalyzer:
                     "format": {
                         "type": "json_schema",
                         "name": _schema_name(text_format),
-                        "schema": text_format.model_json_schema(),
+                        "schema": _provider_json_schema(text_format),
                         "strict": True,
                     }
                 },

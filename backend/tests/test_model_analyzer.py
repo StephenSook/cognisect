@@ -502,10 +502,15 @@ async def test_structured_case_uses_only_terra_official_parse_without_reasoning_
     assert result.abstention_cause is None
     assert [call["model"] for call in client.responses.calls] == ["gpt-5.6-terra"]
     call = client.responses.calls[0]
+    provider_schema = call["text"]["format"]["schema"]
+    assert '"uniqueItems"' in __import__("json").dumps(
+        TerraAnalysisV1.model_json_schema()
+    )
+    assert '"uniqueItems"' not in __import__("json").dumps(provider_schema)
     assert call["text"]["format"] == {
         "type": "json_schema",
         "name": "terra_analysis_v1",
-        "schema": TerraAnalysisV1.model_json_schema(),
+        "schema": provider_schema,
         "strict": True,
     }
     assert call["store"] is False
@@ -620,12 +625,12 @@ async def test_terra_drafts_note_in_mapping_call_and_sol_replaces_only_mapping()
 
     assert result.mapping == sol_mapping
     assert result.proposal_draft == terra_draft
-    assert client.responses.calls[0]["text"]["format"]["schema"] == (
-        TerraAnalysisV1.model_json_schema()
-    )
-    assert client.responses.calls[1]["text"]["format"]["schema"] == (
-        RuleMappingV1.model_json_schema()
-    )
+    terra_schema = client.responses.calls[0]["text"]["format"]["schema"]
+    sol_schema = client.responses.calls[1]["text"]["format"]["schema"]
+    assert '"const": "terra_analysis.v1"' in __import__("json").dumps(terra_schema)
+    assert '"const": "rule_mapping.v1"' in __import__("json").dumps(sol_schema)
+    assert '"uniqueItems"' not in __import__("json").dumps(terra_schema)
+    assert '"uniqueItems"' not in __import__("json").dumps(sol_schema)
 
 
 @pytest.mark.asyncio
