@@ -81,8 +81,11 @@ verifying a production release.
    verify duplicate submission cannot create a second response.
 7. Return to the teacher report, review the evidence, save a decision, reload,
    and read the persisted audit.
-8. Repeat five times with real model telemetry. Record request IDs, exact model
-   snapshots, latency, token usage, cached tokens, and actual cost.
+8. Repeat five times with real model telemetry. Separately record the provider
+   response ID from `response.id`, the optional provider request ID from the SDK's
+   `_request_id`, and the outbound client request ID sent as
+   `X-Client-Request-Id`. Also record exact model snapshots, latency, token usage,
+   cached tokens, and actual cost. Never substitute one identifier for another.
 9. Verify `/version`, `/health`, `/ready`, browser console, CORS, response privacy
    headers, owner isolation, limiter `Retry-After`, and served SHA evidence.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import replace
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -328,6 +329,62 @@ async def test_completed_terra_attempt_replays_staged_result_without_provider_di
     assert result.calls_persisted is True
     assert client.responses.calls == []
     assert journal.events == [("plan", 1)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        replace(_telemetry(), response_id=None),
+        replace(_telemetry(), returned_model_id="gpt-5.6-sol"),
+        replace(_telemetry(), response_id="same-provider-id", request_id="same-provider-id"),
+        replace(_telemetry(), requested_model_id="gpt-5.6-sol"),
+    ],
+)
+async def test_completed_recovery_with_invalid_identity_never_releases_artifact(
+    telemetry: ModelCallTelemetry,
+) -> None:
+    journal = MemoryAttemptJournal(
+        {1: (telemetry, _terra(_mapping("add_subtrahend", "absolute_difference")))}
+    )
+    client = FakeClient([AssertionError("recovered attempts must not dispatch")])
+
+    result = await ResponsesAnalyzer(
+        _settings(), client=client, journal=journal
+    ).analyze(_input("teacher text", source_tier="educator_authored"))
+
+    assert result.mapping is None
+    assert result.abstention_cause == "policy_failure"
+    assert client.responses.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        _telemetry(),
+        replace(
+            _telemetry(),
+            returned_model_id="gpt-5.6-terra-2026-07-16",
+            request_id=None,
+        ),
+    ],
+)
+async def test_completed_recovery_accepts_exact_or_snapshot_identity(
+    telemetry: ModelCallTelemetry,
+) -> None:
+    artifact = _terra(_mapping("add_subtrahend", "absolute_difference"))
+    journal = MemoryAttemptJournal({1: (telemetry, artifact)})
+    client = FakeClient([AssertionError("recovered attempts must not dispatch")])
+
+    result = await ResponsesAnalyzer(
+        _settings(), client=client, journal=journal
+    ).analyze(_input("teacher text", source_tier="educator_authored"))
+
+    assert result.mapping == artifact.mapping
+    assert result.abstention_cause is None
+    assert result.request_id == telemetry.request_id
+    assert client.responses.calls == []
 
 
 @pytest.mark.asyncio

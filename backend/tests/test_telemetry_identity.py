@@ -192,6 +192,29 @@ async def test_malformed_usage_never_string_coerces_non_string_identity_metadata
     assert result.model_calls[0].request_id is None
 
 
+def test_shared_identity_invariant_rejects_non_string_provider_request_metadata() -> None:
+    assert not model_policy.provider_telemetry_identity_is_valid(
+        expected_requested_model_id="gpt-5.6-terra",
+        reported_requested_model_id="gpt-5.6-terra",
+        returned_model_id="gpt-5.6-terra",
+        response_id="resp-provider-123",
+        request_id=123,
+    )
+
+
+@pytest.mark.asyncio
+async def test_valid_usage_with_non_string_provider_request_id_fails_closed() -> None:
+    result = await ResponsesAnalyzer(
+        _settings(), client=_client(_response(request_id=123))
+    ).analyze(_analysis_input())
+
+    assert result.mapping is None
+    assert result.abstention_cause == "policy_failure"
+    assert result.response_id == "resp-provider-123"
+    assert result.request_id is None
+    assert result.model_calls[0].status == "policy_failure"
+
+
 @pytest.mark.asyncio
 async def test_equal_response_and_request_ids_fail_closed_as_conflated() -> None:
     result = await ResponsesAnalyzer(

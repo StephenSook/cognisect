@@ -28,7 +28,7 @@ from cognisect.model_policy import (
     TerraAnalysisV1,
     TokenUsage,
     calculate_cost_usd,
-    returned_model_is_allowed,
+    provider_telemetry_identity_is_valid,
 )
 from cognisect.models import RuleMappingV1, TemplateId
 from cognisect.prompts.analysis_v1 import allowed_evidence_refs, build_prompt
@@ -591,12 +591,12 @@ async def _call_model_once(
         usage_valid = False
         usage = TokenUsage(input_tokens=0, output_tokens=0)
         cost = Decimal()
-    identity_valid = (
-        response_id is not None
-        and returned_model is not None
-        and returned_model_is_allowed(requested_model, returned_model)
-        and (request_id_value is None or request_id is not None)
-        and request_id != response_id
+    identity_valid = provider_telemetry_identity_is_valid(
+        expected_requested_model_id=requested_model,
+        reported_requested_model_id=requested_model,
+        returned_model_id=returned_model,
+        response_id=response_id,
+        request_id=request_id_value,
     )
     mapping: RuleMappingV1 | None
     failure: str | None

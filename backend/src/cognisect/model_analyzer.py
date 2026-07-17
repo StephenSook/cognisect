@@ -29,8 +29,8 @@ from cognisect.model_policy import (
     TokenUsage,
     calculate_cost_usd,
     initial_route,
+    provider_telemetry_identity_is_valid,
     render_instructional_note,
-    returned_model_is_allowed,
     route_review_flags,
     should_use_sol,
 )
@@ -275,6 +275,18 @@ class ResponsesAnalyzer:
                     telemetry=telemetry,
                     cause=causes.get(telemetry.status, "policy_failure"),
                 )
+            if not provider_telemetry_identity_is_valid(
+                expected_requested_model_id=plan.requested_model_id,
+                reported_requested_model_id=telemetry.requested_model_id,
+                returned_model_id=telemetry.returned_model_id,
+                response_id=telemetry.response_id,
+                request_id=telemetry.request_id,
+            ):
+                return _CallResult(
+                    parsed=None,
+                    telemetry=replace(telemetry, status="policy_failure"),
+                    cause="policy_failure",
+                )
             try:
                 parsed = (
                     decision.artifact
@@ -446,12 +458,12 @@ class ResponsesAnalyzer:
                 telemetry=telemetry,
                 cause="policy_failure",
             )
-        identity_is_valid = (
-            response_id is not None
-            and returned_model is not None
-            and returned_model_is_allowed(requested_model, returned_model)
-            and (request_id_value is None or request_id is not None)
-            and request_id != response_id
+        identity_is_valid = provider_telemetry_identity_is_valid(
+            expected_requested_model_id=requested_model,
+            reported_requested_model_id=requested_model,
+            returned_model_id=returned_model,
+            response_id=response_id,
+            request_id=request_id_value,
         )
         telemetry = ModelCallTelemetry(
             requested_model_id=requested_model,

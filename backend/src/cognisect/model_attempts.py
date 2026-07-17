@@ -19,6 +19,7 @@ from cognisect.db_models import (
     ModelCallRecord,
     utc_now,
 )
+from cognisect.model_policy import provider_telemetry_identity_is_valid
 from cognisect.services import AnalysisInProgressError, ModelCallTelemetry
 
 AttemptPurpose = Literal["luna", "terra", "sol"]
@@ -262,11 +263,32 @@ class PostgresAttemptJournal:
                 raise RuntimeError(msg)
             if record.status != "planned":
                 return
+            persisted_plan_matches = _plan_matches(
+                record,
+                plan,
+                stable_client_request_id(plan),
+            )
+            identity_is_valid = provider_telemetry_identity_is_valid(
+                expected_requested_model_id=record.requested_model_id,
+                reported_requested_model_id=telemetry.requested_model_id,
+                returned_model_id=telemetry.returned_model_id,
+                response_id=telemetry.response_id,
+                request_id=telemetry.request_id,
+            )
+            completed_identity_is_valid = (
+                telemetry.status == "completed"
+                and persisted_plan_matches
+                and identity_is_valid
+            )
             record.model_snapshot = telemetry.returned_model_id
             record.returned_model_id = telemetry.returned_model_id
             record.response_id = telemetry.response_id
             record.request_id = telemetry.request_id
-            record.status = telemetry.status
+            record.status = (
+                telemetry.status
+                if telemetry.status != "completed" or completed_identity_is_valid
+                else "policy_failure"
+            )
             record.latency_ms = telemetry.latency_ms
             record.input_tokens = telemetry.input_tokens
             record.output_tokens = telemetry.output_tokens
@@ -275,7 +297,7 @@ class PostgresAttemptJournal:
             record.cache_write_input_tokens = telemetry.cache_write_input_tokens
             record.cost_usd = telemetry.cost_usd
             record.finalized_at = utc_now()
-            if artifact is not None:
+            if artifact is not None and completed_identity_is_valid:
                 schema_version = getattr(artifact, "schema_version", artifact.__class__.__name__)
                 session.add(
                     AnalysisStepResultRecord(

@@ -16,7 +16,7 @@ from typing import Annotated, Literal
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
-from cognisect.model_policy import MODEL_IDS, returned_model_is_allowed
+from cognisect.model_policy import MODEL_IDS, provider_telemetry_identity_is_valid
 
 VERIFIER_TIMEOUT_SECONDS = 30.0
 
@@ -65,12 +65,15 @@ async def _verify(api_key: str) -> list[dict[str, object]]:
                     isinstance(parsed, VerificationOutput)
                     and parsed.verified is True
                     and parsed.sequence == sequence
-                    and isinstance(returned_model, str)
-                    and returned_model_is_allowed(model_id, returned_model)
-                    and isinstance(response_id, str)
-                    and bool(response_id)
-                    and (request_id_value is None or request_id is not None)
-                    and request_id != response_id
+                    and provider_telemetry_identity_is_valid(
+                        expected_requested_model_id=model_id,
+                        reported_requested_model_id=model_id,
+                        returned_model_id=(
+                            returned_model if isinstance(returned_model, str) else None
+                        ),
+                        response_id=response_id if isinstance(response_id, str) else None,
+                        request_id=request_id_value,
+                    )
                 )
                 if not valid:
                     msg = "live verification result was invalid"
