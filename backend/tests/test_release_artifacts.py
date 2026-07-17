@@ -11,11 +11,21 @@ REQUIRED_PUBLIC_DOCS = {
     "docs/DATASET_CARD.md",
     "docs/EVALUATION.md",
     "docs/SECURITY.md",
-    "docs/BUILD_LOG.md",
     "docs/DEPLOYMENT.md",
+    "docs/DEPENDENCY_LICENSES.md",
+    "docs/specs/data-tiers.md",
+    "docs/specs/evidence-contract.md",
+    "docs/specs/rule-registry-v1.md",
+    "docs/specs/state-machine.md",
+}
+
+FORBIDDEN_PUBLIC_PROCESS_ARTIFACTS = {
+    "PLAN.md",
+    "docs/BUILD_LOG.md",
+    "docs/EDUCATOR_REVIEW.md",
     "docs/FACT_SHEET.md",
     "docs/SUBMISSION_COPY.md",
-    "docs/EDUCATOR_REVIEW.md",
+    "docs/superpowers/plans/2026-07-17-release-evidence-gates.md",
 }
 
 
@@ -26,6 +36,20 @@ def test_required_public_release_docs_exist_and_reject_unearned_claims() -> None
         text = path.read_text(encoding="utf-8").lower()
         assert "confirmed misconception" not in text
         assert "exact diagnosis" not in text
+
+
+def test_internal_process_artifacts_are_not_in_the_public_repository() -> None:
+    for relative_path in FORBIDDEN_PUBLIC_PROCESS_ARTIFACTS:
+        assert not (ROOT / relative_path).exists(), relative_path
+
+
+def test_readme_has_product_visual_and_github_architecture() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "docs/assets/cognisect-product-overview.png" in readme
+    assert (ROOT / "docs" / "assets" / "cognisect-product-overview.png").is_file()
+    assert "```mermaid" in readme
+    assert "https://cognisect.vercel.app/lab" in readme
 
 
 def test_ci_has_six_named_jobs_and_no_sqlite() -> None:
@@ -44,6 +68,11 @@ def test_ci_has_six_named_jobs_and_no_sqlite() -> None:
     )
     assert workflow.count("    name:") == 6
     assert workflow.count("cache-suffix: ${{ github.job }}") == 5
+    assert "fetch-depth: 0" in workflow
+    assert (
+        "gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7"
+        in workflow
+    )
     assert "sqlite" not in workflow.lower()
 
 

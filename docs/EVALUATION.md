@@ -34,7 +34,7 @@ educator-authored tier (`n=6`) and must not be pooled with another source tier.
 | Direct GPT-5.6 Terra structured classification | 6 | 6/6 | 6/6 | 6/6 | 6/6 | 1.0 | 4/6 |
 | Terra mapping without compiler | shared | 6/6 | 6/6 | 6/6 | 6/6 | 1.0 | 4/6 |
 | Terra mapping plus compiler, no learner response | shared | 6/6 | 6/6 | 6/6 | 6/6 | 1.0 | 4/6 |
-| Full interactive workflow | NOT RUN | — | — | — | — | — | — |
+| Full interactive workflow | NOT RUN | N/A | N/A | N/A | N/A | N/A | N/A |
 
 “Shared” means the ablations reuse the exact same six Terra mapping artifacts; no
 extra model call is counted. The compiler does not change mapping metrics. It adds
@@ -81,3 +81,21 @@ The full workflow comparison remains `NOT RUN`: the project has not collected a
 real learner response for evaluation. The optional KSU usability review has not
 occurred. No result in this document is evidence of a learner's cognitive state,
 instructional effectiveness, teacher approval, or adoption.
+
+## Future educator usability review
+
+If a consenting KSU instructor, teaching assistant, tutor, or teacher educator
+participates, the review will use the same six fixed educator-authored fixtures
+and no student records. For each case, the educator will first record an unaided
+interpretation, then review the hypotheses and compiled probe, choosing approve,
+edit, reject, or abstain. The session will also test whether the evidence ledger
+and final note are understandable.
+
+One concrete product change supported by the session must be implemented and the
+affected flow rerun before any usability result is reported. Participant identity,
+raw feedback, and consent records stay outside the public repository. Public use
+of a name, quotation, screenshot, video appearance, or README statement requires
+separate permission for that exact surface.
+
+Until that session and rerun occur, COGNISECT makes no educator-review, pilot,
+validation, adoption, classroom, time-saving, or learning-effect claim.

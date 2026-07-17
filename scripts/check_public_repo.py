@@ -17,8 +17,16 @@ FORBIDDEN_PATH_PARTS = {
     "reference-captures",
     "restricted",
     "raw",
+    "superpowers",
 }
 FORBIDDEN_SUFFIXES = {".key", ".pem", ".pdf", ".sqlite", ".sqlite3"}
+FORBIDDEN_TRACKED_PATHS = {
+    "PLAN.md",
+    "docs/BUILD_LOG.md",
+    "docs/EDUCATOR_REVIEW.md",
+    "docs/FACT_SHEET.md",
+    "docs/SUBMISSION_COPY.md",
+}
 SECRET_PATTERNS = {
     "OpenAI-like key": re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     "GitHub token": re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
@@ -53,6 +61,8 @@ def _check_paths(paths: tuple[Path, ...]) -> list[str]:
     errors: list[str] = []
     for path in paths:
         relative = path.relative_to(ROOT)
+        if relative.as_posix() in FORBIDDEN_TRACKED_PATHS:
+            errors.append(f"forbidden internal process artifact: {relative}")
         if any(part.lower() in FORBIDDEN_PATH_PARTS for part in relative.parts):
             errors.append(f"forbidden tracked path: {relative}")
         if path.suffix.lower() in FORBIDDEN_SUFFIXES:

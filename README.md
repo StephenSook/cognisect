@@ -1,56 +1,133 @@
+<p align="center">
+  <img src="docs/assets/cognisect-product-overview.png" alt="COGNISECT landing page showing two competing signed-integer hypotheses flowing through the deterministic Counterexample Compiler to a teacher-reviewed probe" width="100%" />
+</p>
+
 # COGNISECT
 
-COGNISECT is a teacher-controlled formative-assessment workbench for bounded
-signed-integer subtraction. The backend combines a closed deterministic rule
-registry and counterexample compiler with a Postgres-only durable workflow. A
-model may rank constrained hypotheses; it cannot author executable rules or
-decide authorization, probe release, evidence status, or teacher approval.
+**Compile the next question, not a diagnosis.**
 
-## Current evidence status
+COGNISECT helps a secondary mathematics teacher test competing explanations for
+one signed-integer subtraction error. GPT-5.6 maps observed work into a closed
+rule registry; a deterministic Counterexample Compiler finds the smallest
+follow-up problem on which the represented rules disagree.
 
-The repository and a [time-limited public preview](https://cognisect.vercel.app)
-are verified release candidates. The preview uses free Vercel, Render web, and
-Render Postgres resources, so it may cold-start and is not represented as a
-durable classroom production service. A logged-out, two-context Playwright smoke
-has completed the teacher, isolated mobile learner, review, runtime-evidence,
-and deletion loop with persisted `gpt-5.6-terra` telemetry.
+[![CI](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml/badge.svg)](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml)
+[![Live preview](https://img.shields.io/badge/live%20preview-online-3fb950.svg)](https://cognisect.vercel.app)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A frozen comparison made 12 live model calls across six checked-in,
-educator-authored fixtures. Terra and Sol produced schema-valid,
-registry-accepted mappings for all six, and the compiler generated six separating,
-reproducible probes. This small project-authored tier is a harness result, not a
-generalized model-accuracy estimate. Authentic learner-response, educator-review,
-adoption, and learning-effect claims remain disabled.
+**[Try the live preview](https://cognisect.vercel.app)** ·
+**[Open the teacher lab](https://cognisect.vercel.app/lab)** ·
+**[Inspect runtime evidence](https://cognisect.vercel.app/runtime)**
 
-## Local backend
+The compiler proves disagreement between formalized rules. It does not prove a
+learner's cognitive state.
 
-Python 3.12, `uv`, and Docker Compose are required. Start the checked-in
-Postgres service and install the exact lockfile:
+## The problem
 
-```sh
-docker compose up -d --wait postgres
-uv sync --frozen
+One wrong answer can fit more than one plausible procedure. A model that selects
+one explanation too early can turn ambiguity into an unjustified diagnosis.
+COGNISECT preserves the alternatives long enough to ask a question that actually
+separates them, while keeping the teacher in control of what reaches the learner.
+
+## Judge path
+
+1. Open the [teacher lab](https://cognisect.vercel.app/lab) and choose a
+   provenance-cleared public case.
+2. Review the constrained rule hypotheses and the compiled separating probe.
+3. Approve the probe, then open its learner link in a separate browser context.
+4. Submit one signed integer, return to the report, and inspect the persisted
+   evidence update and audit record.
+
+The preview uses free Vercel, Render web, and Render Postgres resources, so the
+first request may cold-start.
+
+## COGNISECT in one loop
+
+> A teacher submits de-identified observed work. GPT-5.6 ranks instances from an
+> educator-reviewed rule registry. The Counterexample Compiler searches all 625
+> bounded subtraction problems and persists the smallest probe where the leading
+> alternatives disagree. The teacher approves it, the learner submits one signed
+> integer, exact matching updates the evidence, and the teacher approves, edits,
+> rejects, or abstains on the final note.
+
+## What is real
+
+| Component | Shipped behavior |
+| --- | --- |
+| Constrained model mapping | GPT-5.6 Terra and Sol return strict structured instances from `rule_registry.v1`; they cannot author executable rules. |
+| Counterexample Compiler | Exhaustive deterministic search over `a - b`, where both operands are in `[-12, 12]`; a probe is released only when represented rules disagree. |
+| Evidence update | One strict signed integer is matched exactly against predictions and labeled `supported`, `weakened`, `unresolved`, or `abstained`. |
+| Human custody | The teacher approves the probe and separately approves, edits, rejects, or abstains on the final note. |
+| Durable workflow | FastAPI, Postgres, SQLAlchemy, Alembic, and LangGraph checkpoints preserve interrupt and resume state. |
+| Capability security | Teacher and learner links use separate high-entropy capabilities with hashed verifiers, atomic response recording, replay protection, and deletion. |
+
+## Architecture
+
+```mermaid
+flowchart TD
+    T["Teacher<br/>de-identified case"] --> API["FastAPI workflow"]
+
+    subgraph MODEL["Bounded model step"]
+      MAP["GPT-5.6 Terra / Sol<br/>constrained rule mapping"]
+    end
+
+    subgraph CORE["Deterministic application core"]
+      REG["Closed rule registry<br/>schema + truth-table validation"]
+      COMP["Counterexample Compiler<br/>bounded exhaustive search"]
+      GATE{"Teacher approves<br/>the probe?"}
+      UPDATE["Exact evidence update<br/>supported / weakened / unresolved"]
+    end
+
+    API --> MAP --> REG --> COMP --> GATE
+    GATE -->|yes| LINK["Opaque one-time<br/>learner link"]
+    GATE -->|no| ABSTAIN["Abstained"]
+    LINK --> ANSWER["Learner submits<br/>one signed integer"]
+    ANSWER --> UPDATE --> REVIEW["Teacher reviews<br/>the final note"]
+
+    STORE[("Postgres records<br/>+ LangGraph checkpoints")]
+    API -. workflow state .-> STORE
+    COMP -. predictions + probe hash .-> STORE
+    UPDATE -. evidence + audit event .-> STORE
+    REVIEW -. decision .-> STORE
 ```
 
-Create `.env` from `.env.example`, replace both pepper placeholders with
-different random values of at least 32 characters, and set an OpenAI key for
-production. Development accepts a local public URL but still requires Postgres
-and explicit peppers. SQLite, demo mode, default credentials, and authentication
-bypasses are not supported.
+The model proposes only registry data. Authorization, rule execution, probe
+selection, response matching, state transitions, and teacher approval remain in
+deterministic application code.
 
-Apply the schema and run the API:
+## Measured evidence
+
+| Gate | Checked result |
+| --- | --- |
+| Frozen model comparison | 12 live model calls across six educator-authored fixtures |
+| Schema and registry acceptance | Terra 6/6; Sol 6/6 |
+| Exact expected rule set | Terra 4/6; Sol 5/6 |
+| Separating probe and hash reproduction | 6/6 Terra mappings |
+| Concurrent learner submissions | 1 accepted and 49 conflicted out of 50 |
+| Targeted security tests | 145 passed |
+| Playwright journeys | 8 desktop, mobile, accessibility, replay, expiry, abstention, and deletion journeys passed |
+| Learner responses used for evaluation | Zero learner responses |
+
+This is a small project-authored harness, not a generalized accuracy estimate.
+No educator usability review, classroom adoption, learning improvement, or
+teacher time-saving result is claimed. See the [evaluation report](docs/EVALUATION.md)
+and [security report](docs/SECURITY.md) for methods and limitations.
+
+## Quickstart
+
+Python 3.12, Node 22, `uv`, and Docker are required.
 
 ```sh
+git clone https://github.com/StephenSook/cognisect.git
+cd cognisect
+cp .env.example .env
+docker compose up -d --wait postgres
+uv sync --frozen
 ./scripts/migrate.sh
 ./scripts/run-backend.sh
 ```
 
-The application factory deliberately has no built-in analyzer fake. Tests inject
-their fake explicitly; a production analyzer must be supplied at construction.
-
-## Local frontend
-
-Install the exact Node 22 dependencies and start the App Router application:
+In a second terminal:
 
 ```sh
 cd frontend
@@ -58,68 +135,44 @@ npm ci
 COGNISECT_BACKEND_URL=http://127.0.0.1:8000 npm run dev
 ```
 
-Open `http://localhost:3000`. Browser calls use the same-origin backend proxy;
-learner links should always be tested in a separate browser context.
-
-## Deterministic public evaluation
-
-```sh
-uv run python scripts/validate_provenance.py
-uv run python scripts/run_offline_evaluation.py
-```
-
-This six-fixture run makes zero model calls and collects zero learner responses.
-It is not an accuracy benchmark.
-
-## Capability threat model
-
-Teacher and learner URLs carry bearer capabilities and must be treated as
-secrets. Learner capabilities are HMAC-derived from a purpose-specific pepper,
-the token identifier, and a fresh 32-byte CSPRNG nonce. Postgres stores the
-non-secret nonce and only the HMAC verifier of the resulting raw capability;
-the raw capability is returned in memory and can be reconstructed for an exact
-idempotent approval replay without being persisted.
-
-A database-only compromise does not reveal bearer capabilities while the
-pepper remains separate. A combined database and pepper compromise can derive
-them, so incident response must rotate the pepper and revoke outstanding links.
-Learner responses use `no-store, private` and `no-referrer` headers to reduce
-browser and referrer leakage.
+Replace the two pepper placeholders with different random values of at least 32
+characters. Set `OPENAI_API_KEY` to run the production analyzer. Browser requests
+use the same-origin frontend proxy; learner links should be tested in a separate
+browser context.
 
 ## Verification
 
-The integration tests connect to the Compose service on port `54329` and never
-skip or substitute SQLite:
-
 ```sh
-uv run ruff check backend
+uv run ruff check backend scripts
 uv run mypy backend/src
 uv run pytest backend/tests -q
-uv run alembic downgrade base
-uv run alembic upgrade head
-uv run alembic downgrade base
-uv run alembic upgrade head
-uv run python scripts/generate_openapi.py
-uv run pytest backend/tests/test_openapi.py -q
-git diff --check
+uv run python scripts/validate_provenance.py
+uv run python scripts/run_offline_evaluation.py --check
+uv run python scripts/run_model_benchmark.py --check
+gitleaks git --redact
+
+cd frontend
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e
 ```
 
-Regenerating `openapi/openapi.json` is an intentional contract change and must
-be reviewed with the API implementation and drift test.
-
-The browser gate is Playwright on desktop and mobile and includes the full
-teacher → isolated learner → teacher report loop, keyboard-only navigation,
-reduced motion, 200%-equivalent reflow, axe scans, slow/offline requests, expired
-and duplicate learner submissions, and abstention.
+CI runs six jobs covering hygiene and full-history secret scanning, backend
+quality, Postgres integration and property tests, frontend checks, Playwright
+accessibility journeys, OpenAPI drift, migrations, and container builds.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Rule registry](docs/specs/rule-registry-v1.md) and [state machine](docs/specs/state-machine.md)
-- [Dataset card](docs/DATASET_CARD.md) and [evaluation protocol](docs/EVALUATION.md)
-- [Security and privacy](docs/SECURITY.md)
-- [Deployment runbook](docs/DEPLOYMENT.md)
-- [Educator review protocol](docs/EDUCATOR_REVIEW.md)
-- [Build log](docs/BUILD_LOG.md), [submission fact sheet](docs/FACT_SHEET.md), and
-  [submission copy](docs/SUBMISSION_COPY.md)
+- [Architecture and API](docs/ARCHITECTURE.md)
+- [Rule registry](docs/specs/rule-registry-v1.md), [evidence contract](docs/specs/evidence-contract.md), and [state machine](docs/specs/state-machine.md)
+- [Dataset card](docs/DATASET_CARD.md), [data tiers](docs/specs/data-tiers.md), and [evaluation](docs/EVALUATION.md)
+- [Security, privacy, and retention](docs/SECURITY.md)
+- [Deployment and incident runbook](docs/DEPLOYMENT.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md) and [dependency licenses](docs/DEPENDENCY_LICENSES.md)
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
