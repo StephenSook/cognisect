@@ -11,6 +11,9 @@ credentials, educator identity, or restricted educational records.
 | `b174437` | Added bounded Responses API routing, structured repair/abstention, telemetry, and durable LangGraph workflow behavior. |
 | `0b4054a` | Completed the plain teacher/learner/review vertical slice and hardened owner recovery and command replay. |
 | `b8a68f5` | Implemented the Observatory Hybrid interface, five-stage topology, local QR transport, responsive states, and browser accessibility gates. |
+| `4a6758b` | Hardened production parsing for the strict LangGraph msgpack flag while preserving fail-closed startup. |
+| `923a94c` | Adapted the provider-facing structured-output schema to the supported Responses API subset without weakening runtime validation. |
+| 2026-07-17 preview | Provisioned free Vercel, Render web, and Render Postgres resources; verified matching served SHA, same-origin health/version, and a cleaned-up public Playwright loop. |
 
 ## Core decisions
 
