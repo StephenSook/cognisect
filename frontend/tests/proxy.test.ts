@@ -322,6 +322,12 @@ describe("same-origin backend proxy", () => {
     expect(() => resolver("short", "production")).toThrow(
       "COGNISECT_PROXY_SIGNING_SECRET",
     );
+    expect(() => resolver(" ".repeat(32), "production")).toThrow(
+      "COGNISECT_PROXY_SIGNING_SECRET",
+    );
+    expect(() => resolver(` ${"p".repeat(30)} `, "production")).toThrow(
+      "COGNISECT_PROXY_SIGNING_SECRET",
+    );
     expect(resolver("p".repeat(32), "production")).toBe("p".repeat(32));
     expect(resolver(undefined, "development")).toBeUndefined();
   });

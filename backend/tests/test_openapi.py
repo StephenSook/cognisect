@@ -97,13 +97,25 @@ def test_rate_limit_and_readiness_failures_are_explicit_openapi_contracts() -> N
     )
     paths = create_app(settings=settings, analyzer=None).openapi()["paths"]
 
-    for operation in (
-        paths["/v1/cases"]["post"],
-        paths["/v1/cases/{case_id}/analysis"]["post"],
-    ):
-        response = operation["responses"]["429"]
+    case_responses = paths["/v1/cases"]["post"]["responses"]
+    analysis_responses = paths["/v1/cases/{case_id}/analysis"]["post"]["responses"]
+    ready_responses = paths["/ready"]["get"]["responses"]
+    error_responses = (
+        (case_responses, "400"),
+        (case_responses, "429"),
+        (analysis_responses, "429"),
+        (ready_responses, "503"),
+    )
+
+    for responses, status_code in error_responses:
+        assert status_code in responses
+        response = responses[status_code]
+        assert response["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorResponse"
+        }
+
+    for response in (case_responses["429"], analysis_responses["429"]):
         assert response["headers"]["Retry-After"]["schema"] == {
             "minimum": 1,
             "type": "integer",
         }
-    assert "503" in paths["/ready"]["get"]["responses"]

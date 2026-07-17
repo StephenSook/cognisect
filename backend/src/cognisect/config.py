@@ -97,7 +97,7 @@ class Settings(BaseSettings):
         if not raw:
             return value
         lowered = raw.lower()
-        if len(raw) < MIN_SECRET_LENGTH or any(
+        if raw != raw.strip() or len(raw) < MIN_SECRET_LENGTH or any(
             part in lowered for part in _PLACEHOLDER_PARTS
         ):
             msg = "PROXY_SIGNING_SECRET must be explicit and at least 32 characters"

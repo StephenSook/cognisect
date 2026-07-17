@@ -26,6 +26,7 @@ from cognisect.api_models import (
     AuditResponse,
     CreateCaseRequest,
     CreateCaseResponse,
+    ErrorResponse,
     EvidenceReceiptResponse,
     LearnerProbeResponse,
     LearnerReceiptResponse,
@@ -93,6 +94,7 @@ OWNER_SECRET_PATTERN = re.compile(r"^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$")
 EXPECTED_ALEMBIC_HEAD = "c5d7e9f1a204"
 RATE_LIMIT_WINDOW_SECONDS = 3_600
 RATE_LIMIT_RESPONSE = {
+    "model": ErrorResponse,
     "description": "Fixed-window request quota exceeded",
     "headers": {
         "Retry-After": {
@@ -334,6 +336,10 @@ def create_app(  # noqa: C901, PLR0915
         response_model=CreateCaseResponse,
         status_code=201,
         responses={
+            status.HTTP_400_BAD_REQUEST: {
+                "model": ErrorResponse,
+                "description": "Invalid proxy identity",
+            },
             status.HTTP_428_PRECONDITION_REQUIRED: {
                 "model": OwnerBootstrapResponse,
                 "description": "Owner session initialized before educational mutation",
@@ -557,7 +563,12 @@ def create_app(  # noqa: C901, PLR0915
 
     @app.get(
         "/ready",
-        responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Not ready"}},
+        responses={
+            status.HTTP_503_SERVICE_UNAVAILABLE: {
+                "model": ErrorResponse,
+                "description": "Not ready",
+            }
+        },
     )
     async def ready_route() -> dict[str, str]:
         try:

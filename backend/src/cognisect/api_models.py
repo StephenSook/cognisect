@@ -89,6 +89,12 @@ class OwnerBootstrapResponse(StrictContractModel):
     )
 
 
+class ErrorResponse(StrictContractModel):
+    """Strict JSON envelope for public string-detail failures."""
+
+    detail: Annotated[str, Field(strict=True, min_length=1, max_length=200)]
+
+
 class AnalysisRequest(StrictContractModel):
     """CAS input for an analysis command."""
 

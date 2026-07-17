@@ -372,6 +372,14 @@ export interface components {
             workflow_id: string;
         };
         /**
+         * ErrorResponse
+         * @description Strict JSON envelope for public string-detail failures.
+         */
+        ErrorResponse: {
+            /** Detail */
+            detail: string;
+        };
+        /**
          * EvidenceReceiptHypothesis
          * @description One prose-free closed-registry hypothesis proof.
          */
@@ -757,7 +765,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -787,6 +797,15 @@ export interface operations {
                     "application/json": components["schemas"]["CreateCaseResponse"];
                 };
             };
+            /** @description Invalid proxy identity */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -812,7 +831,9 @@ export interface operations {
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -860,7 +881,9 @@ export interface operations {
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };

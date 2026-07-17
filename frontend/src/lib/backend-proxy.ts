@@ -112,6 +112,7 @@ export function resolveProxySigningSecret(
   if (configuredSecret === undefined && nodeEnvironment !== "production") return undefined;
   if (
     configuredSecret === undefined ||
+    configuredSecret !== configuredSecret.trim() ||
     configuredSecret.length < 32 ||
     /replace-with|placeholder|change-?me/i.test(configuredSecret)
   ) {

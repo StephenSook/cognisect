@@ -379,6 +379,23 @@
         "title": "CreateCaseResponse",
         "type": "object"
       },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "description": "Strict JSON envelope for public string-detail failures.",
+        "properties": {
+          "detail": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "EvidenceReceiptHypothesis": {
         "additionalProperties": false,
         "description": "One prose-free closed-registry hypothesis proof.",
@@ -1260,6 +1277,13 @@
             "description": "Successful Response"
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "Not ready"
           }
         },
@@ -1320,6 +1344,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid proxy identity"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1341,6 +1375,13 @@
             "description": "Owner session initialized before educational mutation"
           },
           "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "Fixed-window request quota exceeded",
             "headers": {
               "Retry-After": {
@@ -1431,6 +1472,13 @@
             "description": "Validation Error"
           },
           "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "Fixed-window request quota exceeded",
             "headers": {
               "Retry-After": {

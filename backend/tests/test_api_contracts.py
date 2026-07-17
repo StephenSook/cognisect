@@ -88,6 +88,25 @@ def test_production_requires_proxy_signing_secret_without_silent_fallback() -> N
 
 
 @pytest.mark.parametrize(
+    "ambiguous_secret",
+    [" " * 32, f" {'p' * 30} "],
+)
+def test_proxy_signing_secret_rejects_whitespace_ambiguous_values(
+    ambiguous_secret: str,
+) -> None:
+    assert len(ambiguous_secret) == 32
+
+    with pytest.raises(ValidationError, match="PROXY_SIGNING_SECRET"):
+        Settings(
+            **{
+                **VALID_ENV,
+                "app_env": "production",
+                "proxy_signing_secret": ambiguous_secret,
+            }
+        )
+
+
+@pytest.mark.parametrize(
     "shared_with",
     ["owner_secret_pepper", "learner_token_pepper", "abuse_key_pepper"],
 )
