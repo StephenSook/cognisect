@@ -66,3 +66,9 @@ def test_deployment_manifests_do_not_embed_credentials_or_demo_bypasses() -> Non
     assert "value:" not in "\n".join(
         line for line in render.splitlines() if "OPENAI_API_KEY" in line
     )
+
+
+def test_vercel_link_metadata_is_ignored() -> None:
+    ignored_paths = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+    assert ".vercel/" in ignored_paths
