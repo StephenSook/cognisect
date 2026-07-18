@@ -6,7 +6,7 @@ export default function App() {
   const url = "https://cognisect.vercel.app";
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <WebView
         source={{ uri: url }}
         style={styles.webview}
@@ -29,12 +29,12 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#efede5",
+    backgroundColor: "#101313",
     paddingTop: Platform.OS === "android" ? 28 : 0,
   },
   webview: {
     flex: 1,
-    backgroundColor: "#efede5",
+    backgroundColor: "#101313",
   },
   loading: {
     flex: 1,
