@@ -6,9 +6,7 @@ export default function TeacherLayout({ children }: Readonly<{ children: React.R
       <header className="site-header">
         <nav className="site-nav" aria-label="Primary navigation">
           <Link className="brand" href="/">
-            <span className="brand-mark" aria-hidden="true">
-              C
-            </span>
+            <img className="brand-mark brand-logo" src="/branding/cognisect-logo.png" alt="" aria-hidden="true" />
             <span>COGNISECT</span>
           </Link>
           <div className="nav-links">

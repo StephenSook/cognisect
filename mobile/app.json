@@ -8,7 +8,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.cognisect.mobile"
+      "bundleIdentifier": "com.cognisect.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.cognisect.mobile",
@@ -16,7 +19,7 @@
         "backgroundColor": "#0b6f68"
       }
     },
-    "icon": "./assets/icon.png",
+    "icon": "./assets/cognisect-logo.png",
     "web": {
       "favicon": "./assets/favicon.png"
     },
