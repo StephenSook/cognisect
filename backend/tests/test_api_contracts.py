@@ -107,7 +107,7 @@ def test_production_requires_proxy_signing_secret_without_silent_fallback() -> N
     values.pop("proxy_signing_secret")
 
     with pytest.raises(ValidationError, match="PROXY_SIGNING_SECRET"):
-        Settings(**values)
+        Settings(_env_file=None, **values)
 
 
 @pytest.mark.parametrize(
