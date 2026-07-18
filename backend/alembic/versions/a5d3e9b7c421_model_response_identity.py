@@ -18,6 +18,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Relabel historical response IDs and add nullable provider request IDs."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.alter_column(
         "workflows",
         "model_request_id",
@@ -44,6 +45,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop provider request IDs and restore the legacy response-ID labels."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.drop_column("model_calls", "request_id")
     op.alter_column(
         "model_calls",

@@ -22,6 +22,9 @@ class _Operations:
     def alter_column(self, table: str, column: str, **kwargs: object) -> None:
         self.events.append(("rename", table, column, kwargs.get("new_column_name")))
 
+    def execute(self, statement: object) -> None:
+        self.events.append(("execute", str(statement)))
+
     def add_column(self, table: str, column: object) -> None:
         self.events.append(
             (
@@ -56,6 +59,7 @@ def test_model_identity_migration_chain_and_upgrade_operations() -> None:
     assert module.revision == "a5d3e9b7c421"
     assert module.down_revision == "c5d7e9f1a204"
     assert operations.events == [
+        ("execute", "SET LOCAL lock_timeout = '5s'"),
         ("rename", "workflows", "model_request_id", "model_response_id"),
         ("add", "workflows", "model_request_id", 160, True),
         ("rename", "model_calls", "request_id", "response_id"),
@@ -71,6 +75,7 @@ def test_model_identity_migration_downgrade_is_symmetric() -> None:
     module.downgrade()
 
     assert operations.events == [
+        ("execute", "SET LOCAL lock_timeout = '5s'"),
         ("drop", "model_calls", "request_id"),
         ("rename", "model_calls", "response_id", "request_id"),
         ("drop", "workflows", "model_request_id"),

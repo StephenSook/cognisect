@@ -18,6 +18,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Add optional provenance without inferring values for existing cases."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.add_column(
         "cases",
         sa.Column("provenance_record_id", sa.String(length=80), nullable=True),
@@ -26,4 +27,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove optional case provenance."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.drop_column("cases", "provenance_record_id")

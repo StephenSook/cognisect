@@ -18,6 +18,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Create privacy-safe fixed-window counters and expiry lookup index."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.create_table(
         "rate_limit_windows",
         sa.Column("scope", sa.String(length=64), nullable=False),
@@ -55,6 +56,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop atomic rate-limit counters."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.drop_index(
         "ix_rate_limit_windows_scope_expires_at",
         table_name="rate_limit_windows",

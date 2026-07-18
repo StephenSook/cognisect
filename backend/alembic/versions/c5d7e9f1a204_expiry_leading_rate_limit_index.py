@@ -17,6 +17,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Replace the scope-leading index with the bounded-purge lookup index."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.drop_index(
         "ix_rate_limit_windows_scope_expires_at",
         table_name="rate_limit_windows",
@@ -31,6 +32,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Restore the original scope-leading expiry index."""
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.drop_index(
         "ix_rate_limit_windows_expires_at",
         table_name="rate_limit_windows",
