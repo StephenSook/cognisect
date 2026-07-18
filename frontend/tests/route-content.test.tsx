@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ReportView } from "@/components/report-view";
 import { RuntimeEvidence } from "@/components/runtime-evidence";
-import HomePage from "@/app/page";
-import LabPage from "@/app/lab/page";
+import HomePage from "@/app/(teacher)/page";
+import LabPage from "@/app/(teacher)/lab/page";
 import { workflowFixture } from "./fixtures";
 
 vi.mock("next/navigation", () => ({

@@ -20,6 +20,43 @@ function consumeExpectedFailure(failures: string[], message: string) {
   failures.splice(index, 1);
 }
 
+async function expectTeacherShell(page: Page) {
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Lab" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Runtime evidence" })).toBeVisible();
+  await expect(page.getByText("Signed integers · registry v1")).toHaveCount(1);
+  await expect(page.locator(".site-footer")).toContainText(
+    "Teacher-controlled evidence · no cognitive-state claims",
+  );
+}
+
+async function expectIsolatedLearnerShell(page: Page) {
+  await expect(page.locator("main")).toHaveCount(1);
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toHaveCount(0);
+  await expect(page.getByText("Lab", { exact: true })).toHaveCount(0);
+  await expect(page.locator("a")).toHaveCount(0);
+  await expect(page.locator(".site-header, .site-footer")).toHaveCount(0);
+
+  const learnerSurface = (await page.locator("body").innerText()).toLowerCase();
+  for (const forbidden of [
+    "runtime evidence",
+    "signed integers · registry v1",
+    "teacher-controlled evidence",
+    "hypothesis",
+    "correct answer",
+    "telemetry",
+    "model identifier",
+    "model request",
+    "model response",
+    "owner link",
+    "open teacher report",
+    "report action",
+    "live evidence tour",
+  ]) {
+    expect(learnerSurface).not.toContain(forbidden);
+  }
+}
+
 test("landing reflows at 200 percent equivalent with reduced motion", async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 720, height: 450 },
@@ -27,6 +64,7 @@ test("landing reflows at 200 percent equivalent with reduced motion", async ({ b
   });
   const page = await context.newPage();
   await page.goto("/");
+  await expectTeacherShell(page);
 
   await expect(page.getByRole("heading", { name: /625 problems\.\s*One teacher-controlled probe\./ })).toBeVisible();
   await expect(page.getByRole("link", { name: "Run the live evidence tour" })).toBeVisible();
@@ -107,6 +145,7 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   ).toBe(true);
 
   await page.getByRole("link", { name: "Run the live evidence tour" }).click();
+  await expectTeacherShell(page);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await expect(page.getByText(/default prefilled cognisect-ea-001 exemplar is real API input/i)).toBeVisible();
   await expect(page.getByLabel("Case source")).toHaveValue("public_exemplar");
@@ -137,6 +176,7 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   consumeExpectedFailure(browserFailures, "status of 428");
   await page.getByRole("button", { name: "Retry exact command" }).click();
   await expect(page).toHaveURL(/\/case\/[0-9a-f-]+$/, { timeout: 20_000 });
+  await expectTeacherShell(page);
   await expect(page.getByRole("heading", { name: "Compiled probe" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Live evidence tour" }).getByText("First teacher gate")).toHaveAttribute("aria-current", "step");
   await expect(page.getByText("625", { exact: true }).first()).toBeVisible();
@@ -216,21 +256,34 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   await expect(
     learnerPage.getByRole("heading", { level: 1, name: "Learner response" }),
   ).toBeVisible();
-  const learnerSurface = ((await learnerPage.locator("body").textContent()) ?? "").toLowerCase();
-  for (const forbidden of [
-    "hypothesis",
-    "correct answer",
-    "model request",
-    "model response",
-    "learner link",
-    "live evidence tour",
-  ]) {
-    expect(learnerSurface).not.toContain(forbidden);
-  }
+  await expect(learnerPage).toHaveTitle("Learner response | COGNISECT");
+  await expectIsolatedLearnerShell(learnerPage);
   const problemText = await learnerPage.locator(".math-problem").textContent();
   const values = problemText?.match(/-?\d+/g)?.map(Number);
   expect(values).toHaveLength(2);
+  await learnerPage.keyboard.press("Tab");
+  await expect(learnerPage.getByLabel("Your signed integer")).toBeFocused();
+  expect(
+    await learnerPage.getByLabel("Your signed integer").evaluate(
+      (element) => getComputedStyle(element).outlineStyle,
+    ),
+  ).not.toBe("none");
+  await learnerPage.keyboard.press("Tab");
+  await expect(learnerPage.getByLabel("Rationale (optional)")).toBeFocused();
+  await learnerPage.keyboard.press("Tab");
+  await expect(learnerPage.getByRole("button", { name: "Submit response" })).toBeFocused();
+  expect(await learnerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+
+  const learnerViewport = learnerPage.viewportSize();
+  await learnerPage.emulateMedia({ reducedMotion: "reduce" });
+  await learnerPage.setViewportSize({ width: 720, height: 450 });
+  expect(await learnerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+  await learnerPage.setViewportSize({ width: 320, height: 800 });
+  expect(await learnerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+  if (learnerViewport !== null) await learnerPage.setViewportSize(learnerViewport);
 
   await learnerPage.route("**/api/backend/v1/respond/*", async (route) => {
     await route.fulfill({
@@ -270,6 +323,7 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
     timeout: 30_000,
   });
   await page.getByRole("link", { name: "Open teacher report" }).click();
+  await expectTeacherShell(page);
   await expect(page.getByRole("heading", { level: 1, name: "Teacher report" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deterministic evidence" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -297,6 +351,7 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
 
   const workflowId = new URL(page.url()).pathname.split("/").at(-1)!;
   await page.goto(`/runtime?workflow_id=${workflowId}`);
+  await expectTeacherShell(page);
   await expect(page.getByText("deterministic-test-fixture")).toBeVisible();
   await expect(page.getByText("test-fixture-request")).toBeVisible();
   expect((await page.locator("body").textContent()) ?? "").not.toContain(learnerToken);
@@ -311,6 +366,7 @@ test("teacher abstention and unavailable learner states stay explicit", async ({
       : "203.0.113.13",
   });
   await page.goto("/respond/not-a-real-token");
+  await expectIsolatedLearnerShell(page);
   await expect(page.getByRole("heading", { name: "Learner response unavailable" })).toBeVisible();
   await expect(page.locator('p[role="alert"]')).toHaveText(
     "This learner link is invalid or unavailable.",
