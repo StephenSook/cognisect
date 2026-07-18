@@ -1763,6 +1763,28 @@ input[type="checkbox"] {
 
 /* Honest fallback pages */
 
+.root-not-found {
+  display: grid;
+  width: min(100% - 3rem, 44rem);
+  min-height: 100vh;
+  margin-inline: auto;
+  padding-block: clamp(1.5rem, 7vh, 5rem);
+  place-items: center;
+}
+
+.root-not-found > article {
+  width: 100%;
+  padding: clamp(1.5rem, 5vw, 3rem);
+  border-top: 4px solid var(--amber);
+  color: var(--graphite);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.root-not-found h1 {
+  font-size: clamp(2.5rem, 8vw, 4rem);
+}
+
 .site-main > article:not(.landing-page):not(.workbench) {
   max-width: 44rem;
   margin-inline: auto;
@@ -1874,6 +1896,10 @@ input[type="checkbox"] {
   .site-main,
   .site-footer {
     width: min(100% - 1.5rem, 86rem);
+  }
+
+  .root-not-found {
+    width: min(100% - 1.5rem, 44rem);
   }
 
   .learner-header,
@@ -2079,7 +2105,8 @@ input[type="checkbox"] {
   }
 
   .learner-card,
-  .learner-main > article {
+  .learner-main > article,
+  .root-not-found > article {
     border: 2px solid CanvasText;
   }
 

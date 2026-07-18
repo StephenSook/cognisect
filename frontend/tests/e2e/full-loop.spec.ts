@@ -57,6 +57,25 @@ async function expectIsolatedLearnerShell(page: Page) {
   }
 }
 
+async function expectNeutralNotFoundBoundary(page: Page) {
+  await expect(page.getByRole("main")).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Resource not found" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toHaveCount(0);
+  await expect(page.locator(".site-header, .site-footer, a")).toHaveCount(0);
+
+  const surface = (await page.locator("body").innerText()).toLowerCase();
+  for (const forbidden of [
+    "teacher lab",
+    "runtime evidence",
+    "signed integers · registry v1",
+    "teacher-controlled evidence",
+  ]) {
+    expect(surface).not.toContain(forbidden);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+}
+
 test("landing reflows at 200 percent equivalent with reduced motion", async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 720, height: 450 },
@@ -128,6 +147,23 @@ test("keyboard-only entry exposes honest slow-network timeout state", async ({ p
     page.getByText("The request could not reach the service. You can retry safely."),
   ).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("root not-found boundary stays neutral across generic and malformed learner paths", async ({ page }) => {
+  for (const path of ["/does-not-exist", "/respond/not/a-token"]) {
+    const response = await page.goto(path);
+    expect(response?.status()).toBe(404);
+    await expectNeutralNotFoundBoundary(page);
+
+    await page.setViewportSize({ width: 320, height: 800 });
+    await expectNeutralNotFoundBoundary(page);
+  }
+
+  const canonicalLearnerResponse = await page.request.get("/respond/not-a-real-token");
+  expect(canonicalLearnerResponse.status()).toBe(200);
+  expect((await canonicalLearnerResponse.text()).toLowerCase()).not.toContain(
+    "return to the teacher lab",
+  );
 });
 
 test("teacher to isolated learner to teacher report", async ({ page, browser }, testInfo) => {
