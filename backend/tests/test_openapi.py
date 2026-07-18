@@ -40,6 +40,10 @@ def test_evidence_receipt_preserves_strict_compiler_and_hash_constraints():
     )
     schemas = create_app(settings=settings, analyzer=None).openapi()["components"]["schemas"]
     receipt = schemas["EvidenceReceiptResponse"]["properties"]
+    required_receipt_fields = set(schemas["EvidenceReceiptResponse"]["required"])
+    for field in ("model_snapshot", "model_response_id", "model_request_id"):
+        assert field in required_receipt_fields
+        assert receipt[field]["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert receipt["compiled_probe"]["anyOf"][0]["$ref"].endswith(
         "/CompiledProbeResponse"
     )

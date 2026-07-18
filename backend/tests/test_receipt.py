@@ -23,7 +23,7 @@ from cognisect.api_models import (
 from cognisect.receipt import build_evidence_receipt
 
 
-def _workflow_with_forbidden_sentinels() -> WorkflowResponse:
+def _workflow_with_privacy_sentinels() -> WorkflowResponse:
     generated_prose = "FORBIDDEN-GENERATED-PROSE-7f3b"
     edited_prose = "FORBIDDEN-EDITED-PROSE-916c"
     rationale = "FORBIDDEN-LEARNER-RATIONALE-a21d"
@@ -39,9 +39,9 @@ def _workflow_with_forbidden_sentinels() -> WorkflowResponse:
         registry_version="rule_registry.v1",
         prompt_version="analysis_prompt.v2",
         compiler_version="counterexample_compiler.v1",
-        model_snapshot="FORBIDDEN-PROVIDER-METADATA-62af",
-        model_response_id="FORBIDDEN-PROVIDER-RESPONSE-983a",
-        model_request_id="FORBIDDEN-PROVIDER-REQUEST-b1d3",
+        model_snapshot="test-model-2026-07-16",
+        model_response_id="resp_exact_content_free_identity",
+        model_request_id="req_exact_provider_identity",
         learner_response_url=f"https://example.test/respond/{capability}",
         abstention_origin=None,
         created_at=moment,
@@ -110,7 +110,7 @@ def _workflow_with_forbidden_sentinels() -> WorkflowResponse:
 
 def test_receipt_is_explicit_allowlist_with_proof_stable_audit_and_canonical_hash() -> None:
     moment = datetime(2026, 7, 17, 12, 30, tzinfo=UTC)
-    workflow = _workflow_with_forbidden_sentinels()
+    workflow = _workflow_with_privacy_sentinels()
     audit = AuditResponse(
         workflow_id=workflow.workflow_id,
         events=[
@@ -143,6 +143,9 @@ def test_receipt_is_explicit_allowlist_with_proof_stable_audit_and_canonical_has
     ).encode()
 
     assert receipt.receipt_version == "evidence_receipt.v1"
+    assert receipt.model_snapshot == "test-model-2026-07-16"
+    assert receipt.model_response_id == "resp_exact_content_free_identity"
+    assert receipt.model_request_id == "req_exact_provider_identity"
     assert receipt.receipt_hash == hashlib.sha256(canonical).hexdigest()
     assert receipt == repeated
     assert [event.sequence for event in receipt.audit_events] == [1, 2]
@@ -162,8 +165,40 @@ def test_receipt_is_explicit_allowlist_with_proof_stable_audit_and_canonical_has
         "FORBIDDEN-GENERATED-PROSE-7f3b",
         "FORBIDDEN-EDITED-PROSE-916c",
         "FORBIDDEN-TEACHER-NOTE-40da",
-        "FORBIDDEN-PROVIDER-METADATA-62af",
-        "FORBIDDEN-PROVIDER-RESPONSE-983a",
-        "FORBIDDEN-PROVIDER-REQUEST-b1d3",
     ):
         assert forbidden not in serialized
+
+
+def test_receipt_hash_binds_each_model_telemetry_identifier() -> None:
+    workflow = _workflow_with_privacy_sentinels()
+    audit = AuditResponse(workflow_id=workflow.workflow_id, events=[])
+    original = build_evidence_receipt(workflow=workflow, audit=audit)
+
+    for field, replacement in (
+        ("model_snapshot", "test-model-2026-07-17"),
+        ("model_response_id", "resp_different_content_free_identity"),
+        ("model_request_id", "req_different_provider_identity"),
+    ):
+        changed = build_evidence_receipt(
+            workflow=workflow.model_copy(update={field: replacement}),
+            audit=audit,
+        )
+        assert changed.receipt_hash != original.receipt_hash
+
+
+def test_receipt_accepts_historical_null_model_telemetry() -> None:
+    workflow = _workflow_with_privacy_sentinels().model_copy(
+        update={
+            "model_snapshot": None,
+            "model_response_id": None,
+            "model_request_id": None,
+        }
+    )
+    receipt = build_evidence_receipt(
+        workflow=workflow,
+        audit=AuditResponse(workflow_id=workflow.workflow_id, events=[]),
+    )
+
+    assert receipt.model_snapshot is None
+    assert receipt.model_response_id is None
+    assert receipt.model_request_id is None

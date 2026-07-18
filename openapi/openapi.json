@@ -475,6 +475,39 @@
             "title": "Deterministic Evidence",
             "type": "array"
           },
+          "model_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Request Id"
+          },
+          "model_response_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Response Id"
+          },
+          "model_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Snapshot"
+          },
           "prompt_version": {
             "title": "Prompt Version",
             "type": "string"
@@ -581,6 +614,9 @@
           "registry_version",
           "prompt_version",
           "compiler_version",
+          "model_snapshot",
+          "model_response_id",
+          "model_request_id",
           "created_at",
           "updated_at",
           "workflow_version",

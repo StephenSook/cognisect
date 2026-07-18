@@ -426,6 +426,9 @@ async def test_owner_receipt_includes_proof_and_excludes_every_forbidden_content
         f'attachment; filename="cognisect-evidence-{identifiers["workflow_id"]}.json"'
     )
     assert receipt["receipt_version"] == "evidence_receipt.v1"
+    assert receipt["model_snapshot"] == "test-model-2026-07-16"
+    assert receipt["model_response_id"] == "resp_test_metadata"
+    assert receipt["model_request_id"] == "req_test_metadata"
     assert receipt["compiled_probe"]["proof"]["domain_problem_count"] == 625
     assert [event["sequence"] for event in receipt["audit_events"]] == list(range(1, 9))
     canonical_payload = {key: value for key, value in receipt.items() if key != "receipt_hash"}

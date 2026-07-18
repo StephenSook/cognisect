@@ -415,6 +415,12 @@ export interface components {
             created_at: string;
             /** Deterministic Evidence */
             deterministic_evidence: components["schemas"]["EvidenceStatusResponse"][];
+            /** Model Request Id */
+            model_request_id: string | null;
+            /** Model Response Id */
+            model_response_id: string | null;
+            /** Model Snapshot */
+            model_snapshot: string | null;
             /** Prompt Version */
             prompt_version: string;
             /** Provenance Record Id */
