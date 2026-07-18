@@ -166,6 +166,21 @@ test("root not-found boundary stays neutral across generic and malformed learner
   );
 });
 
+test("unowned teacher resources keep one top-level main landmark", async ({ page }) => {
+  const unownedId = "00000000-0000-0000-0000-000000000000";
+  for (const path of [`/case/${unownedId}`, `/report/${unownedId}`]) {
+    await page.goto(path);
+    await expect(page.getByRole("navigation", { name: "Primary navigation" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Lab" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Resource not found" })).toBeVisible();
+    await expect(page.getByText("The resource is unavailable or is not owned by this browser.")).toBeVisible();
+    await expect(page.locator("main")).toHaveCount(1);
+    await expect(page.locator("main main")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
+});
+
 test("teacher to isolated learner to teacher report", async ({ page, browser }, testInfo) => {
   test.setTimeout(120_000);
   const browserFailures: string[] = [];
