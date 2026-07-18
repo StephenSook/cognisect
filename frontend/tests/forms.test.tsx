@@ -326,6 +326,42 @@ describe("teacher decisions", () => {
     },
   );
 
+  it("keeps an abstention with unavailable origin conservative throughout", () => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = null;
+
+    render(<WorkflowPanel initialWorkflow={workflow} />);
+
+    expect(screen.getByText("Constrained GPT mapping")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    const table = screen.getByRole("table", {
+      hidden: true,
+      name: "Persisted compiler trace table",
+    });
+    expect(within(table).getByText("Teacher approval").closest("tr")).toHaveTextContent(
+      "Custody origin unavailable",
+    );
+    expect(within(table).getByText("Learner response").closest("tr")).toHaveTextContent(
+      "Response status unavailable",
+    );
+    expect(within(table).getByText("Evidence update").closest("tr")).toHaveTextContent(
+      "Update status unavailable",
+    );
+    expect(
+      screen.getByText("The workflow abstained. Its durable origin is unavailable."),
+    ).toBeInTheDocument();
+    for (const unsupportedClaim of [
+      "Approved for release",
+      "Response recorded",
+      "Update complete",
+      "The teacher declined this probe.",
+    ]) {
+      expect(document.body).not.toHaveTextContent(unsupportedClaim);
+    }
+  });
+
   it("submits teacher probe abstention without creating a learner link", async () => {
     const terminal = workflowFixture("ABSTAINED");
     const fetchImplementation = vi

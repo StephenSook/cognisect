@@ -57,19 +57,25 @@ export function ReportView({ workflow, audit }: { workflow: Workflow; audit: Aud
           version={workflow.version}
           generatedProposal={workflow.generated_proposal ?? null}
         />
-      ) : (
+      ) : workflow.review_result !== null ? (
         <section className="workbench-card final-decision" aria-labelledby="review-result-heading">
           <p className="card-index mono">SECOND TEACHER GATE / PERSISTED</p>
           <h2 id="review-result-heading">Persisted final teacher decision</h2>
-          <p><strong>Decision</strong>{workflow.review_result?.decision ?? "No final review is persisted."}</p>
-          {workflow.review_result?.note ? (
+          <p><strong>Decision</strong>{workflow.review_result.decision}</p>
+          {workflow.review_result.note ? (
             <p><strong>Teacher note</strong>{workflow.review_result.note}</p>
           ) : null}
-          {workflow.review_result?.edited_text ? (
+          {workflow.review_result.edited_text ? (
             <p><strong>Teacher-edited proposal</strong>{workflow.review_result.edited_text}</p>
           ) : null}
         </section>
-      )}
+      ) : workflow.state === "ABSTAINED" ? (
+        <section className="workbench-card" aria-labelledby="abstention-outcome-heading">
+          <p className="card-index mono">WORKFLOW ABSTENTION / OWNER READBACK</p>
+          <h2 id="abstention-outcome-heading">Abstention outcome</h2>
+          <p>{presentation.abstentionMessage}</p>
+        </section>
+      ) : null}
 
       <section className="workbench-card receipt-stage" aria-labelledby="receipt-stage-heading">
         <p className="card-index mono">OWNER AUTHORIZED / PRIVACY SAFE</p>

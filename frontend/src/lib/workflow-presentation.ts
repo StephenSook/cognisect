@@ -35,10 +35,12 @@ export function workflowPresentation(workflow: Workflow): WorkflowPresentation {
   const abstentionOrigin = workflow.state === "ABSTAINED"
     ? workflow.abstention_origin
     : null;
+  const hasUnknownAbstentionOrigin =
+    workflow.state === "ABSTAINED" && abstentionOrigin === null;
   const probeDeclined = abstentionOrigin === "teacher_probe";
 
   let judgeStage: JudgeTourStage;
-  if (abstentionOrigin === "analysis") {
+  if (hasUnknownAbstentionOrigin || abstentionOrigin === "analysis") {
     judgeStage = "model-mapping";
   } else if (abstentionOrigin === "teacher_probe") {
     judgeStage = "teacher-gate-one";
@@ -69,28 +71,33 @@ export function workflowPresentation(workflow: Workflow): WorkflowPresentation {
     judgeStage = "model-mapping";
   }
 
-  const teacherStage = abstentionOrigin === "analysis"
-    ? "Not reached"
-    : workflow.state === "PROBE_READY"
-      ? "Awaiting teacher"
-      : probeDeclined
-        ? "Abstained"
-        : workflow.state === "CREATED" || workflow.state === "ANALYZING"
-          ? "Not reached"
-          : workflow.state === "FAILED"
-            ? "Workflow failed"
-            : "Approved for release";
+  const teacherStage = hasUnknownAbstentionOrigin
+    ? "Custody origin unavailable"
+    : abstentionOrigin === "analysis"
+      ? "Not reached"
+      : workflow.state === "PROBE_READY"
+        ? "Awaiting teacher"
+        : probeDeclined
+          ? "Abstained"
+          : workflow.state === "CREATED" || workflow.state === "ANALYZING"
+            ? "Not reached"
+            : workflow.state === "FAILED"
+              ? "Workflow failed"
+              : "Approved for release";
 
-  const learnerStage = abstentionOrigin === "learner_response"
-    ? "Invalid response received"
-    : hasRecordedResponse
-      ? "Response recorded"
-      : workflow.state === "AWAITING_RESPONSE"
-        ? "Awaiting response"
-        : "Not released";
+  const learnerStage = hasUnknownAbstentionOrigin
+    ? "Response status unavailable"
+    : abstentionOrigin === "learner_response"
+      ? "Invalid response received"
+      : hasRecordedResponse
+        ? "Response recorded"
+        : workflow.state === "AWAITING_RESPONSE"
+          ? "Awaiting response"
+          : "Not released";
 
   let updateStage: string;
-  if (evidenceStatuses.length > 0) updateStage = evidenceStatuses.join(" / ");
+  if (hasUnknownAbstentionOrigin) updateStage = "Update status unavailable";
+  else if (evidenceStatuses.length > 0) updateStage = evidenceStatuses.join(" / ");
   else if (abstentionOrigin === "analysis") {
     updateStage = "No update · analysis/compiler abstention";
   } else if (probeDeclined) updateStage = "No update · teacher declined";

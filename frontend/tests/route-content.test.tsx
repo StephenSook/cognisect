@@ -51,6 +51,89 @@ describe("teacher report content", () => {
   });
 
   it.each([
+    [
+      "analysis",
+      "Analysis or deterministic compilation abstained before a learner handoff.",
+    ],
+    [
+      "teacher_probe",
+      "The teacher declined this probe. The workflow abstained and no learner link was created.",
+    ],
+    [
+      "learner_response",
+      "The workflow abstained after invalid learner input. No deterministic evidence update was produced.",
+    ],
+  ] as const)(
+    "renders %s as an abstention outcome without claiming persisted final review",
+    (origin, outcome) => {
+      const workflow = workflowFixture("ABSTAINED");
+      workflow.abstention_origin = origin;
+
+      render(
+        <ReportView
+          workflow={workflow}
+          audit={{ workflow_id: workflow.workflow_id, events: [] }}
+        />,
+      );
+
+      expect(screen.getByRole("region", { name: "Abstention outcome" })).toHaveTextContent(
+        outcome,
+      );
+      expect(
+        screen.queryByRole("region", { name: "Persisted final teacher decision" }),
+      ).not.toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent("SECOND TEACHER GATE / PERSISTED");
+    },
+  );
+
+  it("reserves the persisted final decision card for teacher-review abstention", () => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = "teacher_review";
+    workflow.review_result = {
+      decision: "abstained",
+      note: "The represented rules do not resolve this case.",
+      edited_text: null,
+      created_at: "2026-07-16T12:00:00Z",
+    };
+
+    render(
+      <ReportView
+        workflow={workflow}
+        audit={{ workflow_id: workflow.workflow_id, events: [] }}
+      />,
+    );
+
+    const decision = screen.getByRole("region", {
+      name: "Persisted final teacher decision",
+    });
+    expect(decision).toHaveTextContent("abstained");
+    expect(decision).toHaveTextContent("The represented rules do not resolve this case.");
+    expect(screen.queryByRole("region", { name: "Abstention outcome" })).not.toBeInTheDocument();
+  });
+
+  it("keeps an unknown abstention origin conservative on the report", () => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = null;
+
+    render(
+      <ReportView
+        workflow={workflow}
+        audit={{ workflow_id: workflow.workflow_id, events: [] }}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Abstention outcome" })).toHaveTextContent(
+      "The workflow abstained. Its durable origin is unavailable.",
+    );
+    expect(screen.getByText("Constrained GPT mapping")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(document.body).not.toHaveTextContent("Persisted final teacher decision");
+    expect(document.body).not.toHaveTextContent("SECOND TEACHER GATE / PERSISTED");
+  });
+
+  it.each([
     ["analysis", "Constrained GPT mapping"],
     ["teacher_probe", "First teacher gate"],
     ["learner_response", "Exact evidence update"],
