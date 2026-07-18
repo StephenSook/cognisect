@@ -9,7 +9,7 @@
 COGNISECT helps a secondary mathematics teacher test competing explanations for
 one signed-integer subtraction error. GPT-5.6 maps observed work into a closed,
 literature-grounded rule registry; a deterministic Counterexample Compiler finds
-the smallest follow-up problem on which the represented rules disagree.
+the deterministically ranked follow-up problem on which the represented rules disagree.
 
 [![CI](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml/badge.svg)](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml)
 [![Live preview](https://img.shields.io/badge/live%20preview-online-3fb950.svg)](https://cognisect.vercel.app)
@@ -47,7 +47,7 @@ first request may cold-start.
 
 > A teacher submits de-identified observed work. GPT-5.6 ranks instances from an
 > closed, literature-grounded rule registry. The Counterexample Compiler searches
-> all 625 bounded subtraction problems and persists the smallest probe where the
+> all 625 bounded subtraction problems and persists a deterministically ranked probe where the
 > leading alternatives disagree. The teacher approves it, the learner submits one
 > signed integer, exact matching updates the evidence, and the teacher approves,
 > edits, rejects, or abstains on the final note.
@@ -119,7 +119,7 @@ decisions control every learner-facing transition.
 | Separating probe and hash reproduction | 6/6 Terra mappings |
 | Concurrent learner submissions | 1 accepted and 49 conflicted out of 50 |
 | Targeted security tests | 145 passed |
-| Playwright journeys | 8 desktop, mobile, accessibility, replay, expiry, abstention, and deletion journeys passed |
+| Playwright journeys | 8 desktop, mobile journey definitions; 14 desktop/mobile executions across accessibility, replay, expiry, abstention, and deletion scenarios passed |
 | Learner responses used for evaluation | Zero learner responses |
 
 This is a small project-authored harness, not a generalized accuracy estimate.
