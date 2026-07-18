@@ -44,6 +44,31 @@ class ProbeHypothesis:
 
 
 @dataclass(frozen=True, slots=True)
+class CompilerCandidateProof:
+    """One separating candidate with every deterministic ranking component."""
+
+    problem: SignedProblem
+    predictions: tuple[int, ...]
+    distinct_output_count: int
+    top_two_separated: bool
+    distinguished_pair_count: int
+    operand_magnitude: int
+    correct_result_magnitude: int
+    rank: int
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerSearchProof:
+    """Bounded-domain search counts and the deterministic top-ranked candidates."""
+
+    domain_problem_count: int
+    eligible_candidate_count: int
+    separating_candidate_count: int
+    chosen_candidate_rank: int
+    top_candidates: tuple[CompilerCandidateProof, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CompiledProbe:
     """A complete, versioned, reproducibly hashed probe specification."""
 
@@ -54,6 +79,7 @@ class CompiledProbe:
     correct_prediction: int
     hypotheses: tuple[ProbeHypothesis, ...]
     specification_hash: str
+    proof: CompilerSearchProof
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +110,13 @@ def _rank_key(
     b: int,
 ) -> tuple[int, int, int, int, int, int, int]:
     predictions = tuple(_prediction(hypothesis, a, b) for hypothesis in hypotheses)
+    return _rank_components(predictions, a, b)
+
+
+def _rank_components(
+    predictions: tuple[int, ...], a: int, b: int
+) -> tuple[int, int, int, int, int, int, int]:
+    """Return the frozen lexicographic ranking tuple for computed predictions."""
     distinguished_pairs = sum(
         left != right for left, right in itertools.combinations(predictions, 2)
     )
@@ -95,6 +128,60 @@ def _rank_key(
         abs(correct_result(a, b)),
         a,
         b,
+    )
+
+
+def _rank_candidates(
+    hypotheses: tuple[AcceptedHypothesis, ...],
+    original_a: int,
+    original_b: int,
+) -> CompilerSearchProof | None:
+    """Rank the entire eligible domain once and retain an inspectable proof."""
+    ranked: list[
+        tuple[
+            tuple[int, int, int, int, int, int, int],
+            SignedProblem,
+            tuple[int, ...],
+        ]
+    ] = []
+    for a in DOMAIN_VALUES:
+        for b in DOMAIN_VALUES:
+            if (a, b) == (original_a, original_b):
+                continue
+            predictions = tuple(_prediction(hypothesis, a, b) for hypothesis in hypotheses)
+            if len(set(predictions)) < MIN_ACCEPTED_HYPOTHESES:
+                continue
+            ranked.append(
+                (
+                    _rank_components(predictions, a, b),
+                    SignedProblem(a=a, b=b),
+                    predictions,
+                )
+            )
+
+    ranked.sort(key=lambda item: item[0])
+    if not ranked:
+        return None
+
+    top_candidates = tuple(
+        CompilerCandidateProof(
+            problem=problem,
+            predictions=predictions,
+            distinct_output_count=-rank_key[0],
+            top_two_separated=bool(-rank_key[1]),
+            distinguished_pair_count=-rank_key[2],
+            operand_magnitude=rank_key[3],
+            correct_result_magnitude=rank_key[4],
+            rank=rank,
+        )
+        for rank, (rank_key, problem, predictions) in enumerate(ranked[:5], start=1)
+    )
+    return CompilerSearchProof(
+        domain_problem_count=len(DOMAIN_VALUES) ** 2,
+        eligible_candidate_count=(len(DOMAIN_VALUES) ** 2) - 1,
+        separating_candidate_count=len(ranked),
+        chosen_candidate_rank=1,
+        top_candidates=top_candidates,
     )
 
 
@@ -163,19 +250,13 @@ def compile_accepted_probe(
     if len(hypotheses) < MIN_ACCEPTED_HYPOTHESES:
         return CompilerAbstention(status="abstained", reason="insufficient_hypotheses")
 
-    candidates: list[tuple[tuple[int, int, int, int, int, int, int], int, int]] = []
-    for a in DOMAIN_VALUES:
-        for b in DOMAIN_VALUES:
-            if (a, b) == (original_a, original_b):
-                continue
-            predictions = {_prediction(hypothesis, a, b) for hypothesis in hypotheses}
-            if len(predictions) >= MIN_ACCEPTED_HYPOTHESES:
-                candidates.append((_rank_key(hypotheses, a, b), a, b))
-
-    if not candidates:
+    proof = _rank_candidates(hypotheses, original_a, original_b)
+    if proof is None:
         return CompilerAbstention(status="abstained", reason="no_separating_probe")
 
-    _, chosen_a, chosen_b = min(candidates)
+    chosen_candidate = proof.top_candidates[0]
+    chosen_a = chosen_candidate.problem.a
+    chosen_b = chosen_candidate.problem.b
     original_problem = SignedProblem(a=original_a, b=original_b)
     chosen_problem = SignedProblem(a=chosen_a, b=chosen_b)
     correct_prediction = correct_result(chosen_a, chosen_b)
@@ -186,9 +267,11 @@ def compile_accepted_probe(
             description=hypothesis.description,
             rank=hypothesis.rank,
             truth_table_hash=hypothesis.truth_table_hash,
-            prediction=_prediction(hypothesis, chosen_a, chosen_b),
+            prediction=prediction,
         )
-        for hypothesis in hypotheses
+        for hypothesis, prediction in zip(
+            hypotheses, chosen_candidate.predictions, strict=True
+        )
     )
     payload = _specification_payload(
         versions=(REGISTRY_VERSION, COMPILER_VERSION),
@@ -205,6 +288,7 @@ def compile_accepted_probe(
         correct_prediction=correct_prediction,
         hypotheses=probe_hypotheses,
         specification_hash=_hash_payload(payload),
+        proof=proof,
     )
 
 

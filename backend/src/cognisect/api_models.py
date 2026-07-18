@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints, model_validator
 
-from cognisect.models import StrictContractModel
+from cognisect.models import Rank, StrictContractModel
 
 SourceTier = Literal[
     "authentic",
@@ -18,7 +18,38 @@ SourceTier = Literal[
     "educator_authored",
     "custom",
 ]
+AbstentionOrigin = Literal[
+    "analysis",
+    "teacher_probe",
+    "learner_response",
+    "teacher_review",
+]
 NonEmptyText = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=10_000)]
+ProvenanceRecordId = Annotated[
+    str,
+    StringConstraints(
+        strict=True,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    ),
+]
+Sha256Hex = Annotated[
+    str,
+    StringConstraints(
+        strict=True,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    ),
+]
+SourceRevision = Annotated[
+    str,
+    StringConstraints(
+        strict=True,
+        pattern=r"^(?:development|[0-9a-f]{40})$",
+    ),
+]
 
 
 class SignedProblemDTO(StrictContractModel):
@@ -35,12 +66,16 @@ class CreateCaseRequest(StrictContractModel):
     problem: SignedProblemDTO
     observed_work: NonEmptyText
     deidentified_attestation: bool = False
+    provenance_record_id: ProvenanceRecordId | None = None
 
     @model_validator(mode="after")
-    def custom_content_is_attested(self) -> Self:
-        """Require an affirmative de-identification attestation for custom content."""
+    def attestation_and_provenance_match_source_tier(self) -> Self:
+        """Require custom attestation and restrict provenance to educator-authored cases."""
         if self.source_tier == "custom" and self.deidentified_attestation is not True:
             msg = "custom cases require deidentified_attestation=true"
+            raise ValueError(msg)
+        if self.provenance_record_id is not None and self.source_tier != "educator_authored":
+            msg = "provenance_record_id is allowed only for educator_authored cases"
             raise ValueError(msg)
         return self
 
@@ -58,6 +93,12 @@ class OwnerBootstrapResponse(StrictContractModel):
     detail: Literal["owner session initialized; retry the exact command"] = (
         "owner session initialized; retry the exact command"
     )
+
+
+class ErrorResponse(StrictContractModel):
+    """Strict JSON envelope for public string-detail failures."""
+
+    detail: Annotated[str, Field(strict=True, min_length=1, max_length=200)]
 
 
 class AnalysisRequest(StrictContractModel):
@@ -147,16 +188,39 @@ class AcceptedHypothesisResponse(StrictContractModel):
     template_id: str
     evidence_refs: list[str]
     description: str
-    rank: int
-    truth_table_hash: str
+    rank: Rank
+    truth_table_hash: Sha256Hex
 
 
 class ProbePredictionResponse(StrictContractModel):
     """One persisted alternative prediction committed with the probe."""
 
     template_id: str
-    rank: int
+    rank: Rank
     prediction: int
+
+
+class CompilerCandidateProof(StrictContractModel):
+    """One ranked separating candidate exposed to the authorized teacher."""
+
+    problem: SignedProblemDTO
+    predictions: Annotated[list[int], Field(min_length=2)]
+    distinct_output_count: Annotated[int, Field(strict=True, ge=2)]
+    top_two_separated: bool
+    distinguished_pair_count: Annotated[int, Field(strict=True, ge=1)]
+    operand_magnitude: Annotated[int, Field(strict=True, ge=0, le=24)]
+    correct_result_magnitude: Annotated[int, Field(strict=True, ge=0, le=24)]
+    rank: Annotated[int, Field(strict=True, ge=1, le=5)]
+
+
+class CompilerSearchProof(StrictContractModel):
+    """Complete bounded-domain counts and up to five deterministic finalists."""
+
+    domain_problem_count: Literal[625]
+    eligible_candidate_count: Literal[624]
+    separating_candidate_count: Annotated[int, Field(strict=True, ge=1, le=624)]
+    chosen_candidate_rank: Literal[1]
+    top_candidates: Annotated[list[CompilerCandidateProof], Field(min_length=1, max_length=5)]
 
 
 class CompiledProbeResponse(StrictContractModel):
@@ -165,10 +229,11 @@ class CompiledProbeResponse(StrictContractModel):
     original_problem: SignedProblemDTO
     problem: SignedProblemDTO
     correct_prediction: int
-    specification_hash: str
+    specification_hash: Sha256Hex
     registry_version: str
     compiler_version: str
     predictions: list[ProbePredictionResponse]
+    proof: CompilerSearchProof
 
 
 class EvidenceStatusResponse(StrictContractModel):
@@ -194,20 +259,24 @@ class WorkflowResponse(StrictContractModel):
     workflow_id: UUID
     case_id: UUID
     source_tier: SourceTier
+    provenance_record_id: str | None
     state: str
     schema_version: str
     registry_version: str
     prompt_version: str
     compiler_version: str
     model_snapshot: str | None
+    model_response_id: str | None
     model_request_id: str | None
     learner_response_url: str | None
+    abstention_origin: AbstentionOrigin | None
     created_at: datetime
     updated_at: datetime
     version: int
     accepted_hypotheses: list[AcceptedHypothesisResponse]
     compiled_probe: CompiledProbeResponse | None
     deterministic_evidence: list[EvidenceStatusResponse]
+    learner_rationale: str | None
     review_result: ReviewResultResponse | None
     generated_proposal: str | None = None
     edited_text: str | None = None
@@ -230,6 +299,47 @@ class AuditResponse(StrictContractModel):
     events: list[AuditEventResponse]
 
 
+class EvidenceReceiptHypothesis(StrictContractModel):
+    """One prose-free closed-registry hypothesis proof."""
+
+    template_id: str
+    rank: Rank
+    truth_table_hash: Sha256Hex
+
+
+class EvidenceReceiptPayload(StrictContractModel):
+    """Hashable privacy-safe receipt fields, excluding the hash itself."""
+
+    receipt_version: Literal["evidence_receipt.v1"] = "evidence_receipt.v1"
+    workflow_id: UUID
+    case_id: UUID
+    source_tier: SourceTier
+    provenance_record_id: str | None
+    state: str
+    schema_version: str
+    registry_version: str
+    prompt_version: str
+    compiler_version: str
+    model_snapshot: str | None
+    model_response_id: str | None
+    model_request_id: str | None
+    created_at: datetime
+    updated_at: datetime
+    workflow_version: int
+    accepted_hypotheses: list[EvidenceReceiptHypothesis]
+    compiled_probe: CompiledProbeResponse | None
+    deterministic_evidence: list[EvidenceStatusResponse]
+    review_decision: ReviewDecision | None
+    reviewed_at: datetime | None
+    audit_events: list[AuditEventResponse]
+
+
+class EvidenceReceiptResponse(EvidenceReceiptPayload):
+    """Owner-authorized receipt with a canonical payload hash."""
+
+    receipt_hash: Sha256Hex
+
+
 class VersionResponse(StrictContractModel):
     """Public build and deterministic-contract versions."""
 
@@ -237,6 +347,7 @@ class VersionResponse(StrictContractModel):
     schema_version: str
     registry_version: str
     compiler_version: str
+    source_revision: SourceRevision
 
 
 LearnerTokenResponse.model_rebuild()

@@ -46,6 +46,13 @@ expected version; stale writes fail without side effects. Model calls execute
 outside database locks, while attempt journals make retry and restart behavior
 auditable.
 
+Completed Responses API calls preserve three distinct correlation values:
+the generated outbound client request ID, the provider response ID from
+`response.id`, and the optional provider request ID from the SDK's
+`_request_id` property. Historical response IDs retain their original values
+under the corrected response-ID label; missing historical provider request IDs
+remain null.
+
 Every mutation requires an idempotency key. Approval replays return the same
 learner URL, learner submission replays never create a second response, and
 audit rows are protected by a database-level append-only trigger.

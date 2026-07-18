@@ -1,21 +1,160 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ReportView } from "@/components/report-view";
 import { RuntimeEvidence } from "@/components/runtime-evidence";
+import HomePage from "@/app/(teacher)/page";
+import LabPage from "@/app/(teacher)/lab/page";
 import { workflowFixture } from "./fixtures";
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
+describe("live evidence tour route content", () => {
+  it("leads with the deterministic 625-to-624 mechanism and a real lab route", () => {
+    render(<HomePage />);
+
+    expect(
+      screen.getByRole("heading", { name: /625 problems\.\s*One teacher-controlled probe\./ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/excludes the original problem to leave 624 eligible follow-ups/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Run the live evidence tour" })).toHaveAttribute(
+      "href",
+      "/lab",
+    );
+    expect(screen.getByRole("navigation", { name: "Live evidence tour" })).toBeInTheDocument();
+  });
+
+  it("identifies the default exemplar as real API input while preserving free entry", () => {
+    render(<LabPage />);
+
+    expect(screen.getByText(/default prefilled/i)).toHaveTextContent("cognisect-ea-001");
+    expect(screen.getByText(/real API input with persisted provenance/i)).toBeInTheDocument();
+    expect(screen.getByText(/not a mock or a demo bypass/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Case source")).toHaveValue("public_exemplar");
+    expect(screen.getByLabelText("Public case")).toHaveValue("cognisect-ea-001");
+  });
+});
+
 describe("teacher report content", () => {
+  it.each([
+    ["ANALYZING", "Constrained GPT mapping"],
+    ["RESPONSE_RECORDED", "Exact evidence update"],
+    ["AWAITING_REVIEW", "Second teacher gate"],
+  ])("maps report state %s instead of assuming the second teacher gate", (state, stage) => {
+    const workflow = workflowFixture(state);
+    render(<ReportView workflow={workflow} audit={{ workflow_id: workflow.workflow_id, events: [] }} />);
+
+    const tour = screen.getByRole("navigation", { name: "Live evidence tour" });
+    expect(within(tour).getByText(stage)).toHaveAttribute("aria-current", "step");
+  });
+
+  it.each([
+    [
+      "analysis",
+      "Analysis or deterministic compilation abstained before a learner handoff.",
+    ],
+    [
+      "teacher_probe",
+      "The teacher declined this probe. The workflow abstained and no learner link was created.",
+    ],
+    [
+      "learner_response",
+      "The workflow abstained after invalid learner input. No deterministic evidence update was produced.",
+    ],
+  ] as const)(
+    "renders %s as an abstention outcome without claiming persisted final review",
+    (origin, outcome) => {
+      const workflow = workflowFixture("ABSTAINED");
+      workflow.abstention_origin = origin;
+
+      render(
+        <ReportView
+          workflow={workflow}
+          audit={{ workflow_id: workflow.workflow_id, events: [] }}
+        />,
+      );
+
+      expect(screen.getByRole("region", { name: "Abstention outcome" })).toHaveTextContent(
+        outcome,
+      );
+      expect(
+        screen.queryByRole("region", { name: "Persisted final teacher decision" }),
+      ).not.toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent("SECOND TEACHER GATE / PERSISTED");
+    },
+  );
+
+  it("reserves the persisted final decision card for teacher-review abstention", () => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = "teacher_review";
+    workflow.review_result = {
+      decision: "abstained",
+      note: "The represented rules do not resolve this case.",
+      edited_text: null,
+      created_at: "2026-07-16T12:00:00Z",
+    };
+
+    render(
+      <ReportView
+        workflow={workflow}
+        audit={{ workflow_id: workflow.workflow_id, events: [] }}
+      />,
+    );
+
+    const decision = screen.getByRole("region", {
+      name: "Persisted final teacher decision",
+    });
+    expect(decision).toHaveTextContent("abstained");
+    expect(decision).toHaveTextContent("The represented rules do not resolve this case.");
+    expect(screen.queryByRole("region", { name: "Abstention outcome" })).not.toBeInTheDocument();
+  });
+
+  it("keeps an unknown abstention origin conservative on the report", () => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = null;
+
+    render(
+      <ReportView
+        workflow={workflow}
+        audit={{ workflow_id: workflow.workflow_id, events: [] }}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Abstention outcome" })).toHaveTextContent(
+      "The workflow abstained. Its durable origin is unavailable.",
+    );
+    expect(screen.getByText("Constrained GPT mapping")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(document.body).not.toHaveTextContent("Persisted final teacher decision");
+    expect(document.body).not.toHaveTextContent("SECOND TEACHER GATE / PERSISTED");
+  });
+
+  it.each([
+    ["analysis", "Constrained GPT mapping"],
+    ["teacher_probe", "First teacher gate"],
+    ["learner_response", "Exact evidence update"],
+    ["teacher_review", "Evidence receipt"],
+  ] as const)("maps %s abstention to its durable report stage", (origin, stage) => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = origin;
+
+    render(<ReportView workflow={workflow} audit={{ workflow_id: workflow.workflow_id, events: [] }} />);
+
+    const tour = screen.getByRole("navigation", { name: "Live evidence tour" });
+    expect(within(tour).getByText(stage)).toHaveAttribute("aria-current", "step");
+  });
+
   it("renders persisted deterministic evidence, proposal, review, and audit readback", () => {
     const workflow = workflowFixture("AWAITING_REVIEW");
     workflow.deterministic_evidence = [
       { template_id: "add_subtrahend", rank: 1, status: "weakened" },
       { template_id: "absolute_difference", rank: 2, status: "supported" },
     ];
+    workflow.learner_rationale = "I kept the second sign and counted left.";
     render(
       <ReportView
         workflow={workflow}
@@ -42,6 +181,35 @@ describe("teacher report content", () => {
     );
     expect(screen.getByRole("button", { name: "Save review" })).toBeInTheDocument();
     expect(screen.getByText(/CREATED → ANALYZING/)).toBeInTheDocument();
+    expect(screen.getByText("Review-only learner rationale").parentElement).toHaveTextContent(
+      "I kept the second sign and counted left.",
+    );
+    const download = screen.getByRole("button", { name: "Download evidence receipt" });
+    expect(download.closest("form")).toHaveAttribute(
+      "action",
+      `/api/backend/v1/workflows/${workflow.workflow_id}/receipt`,
+    );
+  });
+
+  it("renders the persisted final teacher note and edit separately from deterministic evidence", () => {
+    const workflow = workflowFixture("EDITED");
+    workflow.learner_rationale = "I moved left from the first number.";
+    workflow.review_result = {
+      decision: "edited",
+      note: "Persisted teacher note after review.",
+      edited_text: "Persisted teacher-edited proposal.",
+      created_at: "2026-07-16T12:00:00Z",
+    };
+    workflow.edited_text = "Persisted teacher-edited proposal.";
+
+    render(<ReportView workflow={workflow} audit={{ workflow_id: workflow.workflow_id, events: [] }} />);
+
+    const result = screen.getByRole("region", { name: "Persisted final teacher decision" });
+    expect(result).toHaveTextContent("Persisted teacher note after review.");
+    expect(result).toHaveTextContent("Persisted teacher-edited proposal.");
+    expect(screen.getByText("Review-only learner rationale").parentElement).toHaveTextContent(
+      "I moved left from the first number.",
+    );
   });
 });
 
@@ -60,13 +228,16 @@ describe("runtime evidence allowlist", () => {
           schema_version: "workflow.v1",
           registry_version: "rule_registry.v1",
           compiler_version: "counterexample_compiler.v1",
+          source_revision: "a".repeat(40),
         }}
         workflow={workflow}
       />,
     );
 
     expect(screen.getByText("rule_registry.v1")).toBeInTheDocument();
+    expect(screen.getByText("a".repeat(40))).toBeInTheDocument();
     expect(screen.getByText("educator_authored")).toBeInTheDocument();
+    expect(screen.getByText("resp_public_metadata")).toBeInTheDocument();
     expect(screen.getByText("req_public_metadata")).toBeInTheDocument();
     expect(screen.getByText(/No live-model status is claimed/)).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(privateMarker);

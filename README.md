@@ -7,9 +7,9 @@
 **Compile the next question, not a diagnosis.**
 
 COGNISECT helps a secondary mathematics teacher test competing explanations for
-one signed-integer subtraction error. GPT-5.6 maps observed work into a closed
-rule registry; a deterministic Counterexample Compiler finds the smallest
-follow-up problem on which the represented rules disagree.
+one signed-integer subtraction error. GPT-5.6 maps observed work into a closed,
+literature-grounded rule registry; a deterministic Counterexample Compiler finds
+the smallest follow-up problem on which the represented rules disagree.
 
 [![CI](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml/badge.svg)](https://github.com/StephenSook/cognisect/actions/workflows/ci.yml)
 [![Live preview](https://img.shields.io/badge/live%20preview-online-3fb950.svg)](https://cognisect.vercel.app)
@@ -36,7 +36,9 @@ separates them, while keeping the teacher in control of what reaches the learner
 2. Review the constrained rule hypotheses and the compiled separating probe.
 3. Approve the probe, then open its learner link in a separate browser context.
 4. Submit one signed integer, return to the report, and inspect the persisted
-   evidence update and audit record.
+   evidence update.
+5. Save the final teacher decision—approve, edit, reject, or abstain—then refresh
+   the report to read the persisted decision back alongside the audit record.
 
 The preview uses free Vercel, Render web, and Render Postgres resources, so the
 first request may cold-start.
@@ -44,11 +46,11 @@ first request may cold-start.
 ## COGNISECT in one loop
 
 > A teacher submits de-identified observed work. GPT-5.6 ranks instances from an
-> educator-reviewed rule registry. The Counterexample Compiler searches all 625
-> bounded subtraction problems and persists the smallest probe where the leading
-> alternatives disagree. The teacher approves it, the learner submits one signed
-> integer, exact matching updates the evidence, and the teacher approves, edits,
-> rejects, or abstains on the final note.
+> closed, literature-grounded rule registry. The Counterexample Compiler searches
+> all 625 bounded subtraction problems and persists the smallest probe where the
+> leading alternatives disagree. The teacher approves it, the learner submits one
+> signed integer, exact matching updates the evidence, and the teacher approves,
+> edits, rejects, or abstains on the final note.
 
 ## What is real
 
@@ -95,6 +97,18 @@ The model proposes only registry data. Authorization, rule execution, probe
 selection, response matching, state transitions, and teacher approval remain in
 deterministic application code.
 
+## How Codex helped build COGNISECT
+
+The Git history makes the Codex collaboration traceable. Codex helped implement
+and test the deterministic signed-integer core in `af43cc2`, the durable Postgres
+workflow in `2b9fd53`, the Responses API workflow in `42e5bef`, and the full
+vertical slice in `9884be9`.
+
+Product scope, evidence vocabulary, privacy boundaries, human gates, and final
+claim decisions were human decisions. GPT-5.6 remains constrained to mapping
+observed work into registry instances; deterministic code and explicit teacher
+decisions control every learner-facing transition.
+
 ## Measured evidence
 
 | Gate | Checked result |
@@ -116,6 +130,13 @@ and [security report](docs/SECURITY.md) for methods and limitations.
 ## Quickstart
 
 Python 3.12, Node 22, `uv`, and Docker are required.
+CI uses Node 22.22.2. Both frontend manifests and project npm configuration
+enforce npm 10.9.4. Activate that exact package manager before installation:
+
+```sh
+corepack enable npm && corepack prepare npm@10.9.4 --activate
+test "$(npm --version)" = "10.9.4"
+```
 
 ```sh
 git clone https://github.com/StephenSook/cognisect.git
@@ -135,10 +156,12 @@ npm ci
 COGNISECT_BACKEND_URL=http://127.0.0.1:8000 npm run dev
 ```
 
-Replace the two pepper placeholders with different random values of at least 32
-characters. Set `OPENAI_API_KEY` to run the production analyzer. Browser requests
-use the same-origin frontend proxy; learner links should be tested in a separate
-browser context.
+Replace the three pepper placeholders with distinct random values of at least 32
+characters. Generate the shared backend/frontend proxy credential with
+`openssl rand -hex 32` and copy its exact unmodified output to
+`PROXY_SIGNING_SECRET` and `COGNISECT_PROXY_SIGNING_SECRET`. Set `OPENAI_API_KEY`
+to run the production analyzer. Browser requests use the same-origin frontend
+proxy; learner links should be tested in a separate browser context.
 
 ## Verification
 
@@ -157,11 +180,24 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+npm ci --prefix tools/openapi-generator
+npm run check:peers
+npm run check:api
+npm audit --audit-level=high
+npm audit --audit-level=high --prefix tools/openapi-generator
+
+cd ..
+uv export --frozen --no-hashes --no-dev --no-emit-project | uvx --python 3.12 pip-audit -r /dev/stdin
+uv run python scripts/generate_dependency_licenses.py --check
 ```
 
 CI runs six jobs covering hygiene and full-history secret scanning, backend
 quality, Postgres integration and property tests, frontend checks, Playwright
 accessibility journeys, OpenAPI drift, migrations, and container builds.
+The hygiene job installs both exact npm lockfiles, rejects invalid peer trees,
+checks both npm graphs at high audit severity, scans the frozen production Python
+export, and rejects dependency-license inventory drift. Audit results describe the
+locked graphs at execution time; they are not a claim that dependencies are safe.
 
 ## Documentation
 

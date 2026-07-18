@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { EvidenceTopology } from "@/components/evidence-topology";
+import { JudgeTour } from "@/components/judge-tour";
 
 const METHOD_HYPOTHESES = [
   { rank: 1, label: "Adds the written second operand", prediction: -9 },
@@ -17,17 +18,17 @@ export default function HomePage() {
             <span>Signed-integer subtraction</span>
           </p>
           <h1 id="hero-heading">
-            Counterexamples
-            <span>for teacher review</span>
+            625 problems.
+            <span>One teacher-controlled probe.</span>
           </h1>
           <p className="hero-summary">
-            Test competing explanations for one learner error with a probe compiled to make
-            the represented rules disagree.
+            The compiler scans the frozen 25 by 25 domain, excludes the original problem to leave
+            624 eligible follow-ups, and persists the deterministic rank-one separator.
           </p>
           <div className="hero-actions">
             <Link className="primary-action" href="/lab">
               <span aria-hidden="true">↗</span>
-              Open the teacher lab
+              Run the live evidence tour
             </Link>
             <a className="text-action" href="#method">
               Inspect the method
@@ -59,10 +60,12 @@ export default function HomePage() {
         </div>
       </section>
 
+      <JudgeTour currentStage="case-input" />
+
       <section id="method" className="method-section" aria-labelledby="method-heading">
         <div className="section-heading">
           <p className="eyebrow">One controlled evidence loop</p>
-          <h2 id="method-heading">Model suggestions stop where proof begins.</h2>
+          <h2 id="method-heading">Proof begins after constrained model mapping.</h2>
         </div>
         <ol className="method-grid">
           <li>
@@ -70,8 +73,8 @@ export default function HomePage() {
             <p className="method-kicker">Constrained mapping</p>
             <h3>GPT maps observed work.</h3>
             <p>
-              The model can select only educator-reviewed templates. Unknown or equivalent
-              rules are rejected.
+              The model can select only templates from a closed, literature-grounded rule
+              registry. Unknown or equivalent rules are rejected.
             </p>
           </li>
           <li>

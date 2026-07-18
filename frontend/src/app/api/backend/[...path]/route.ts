@@ -1,4 +1,8 @@
-import { forwardBackendRequest, resolveBackendUrl } from "@/lib/backend-proxy";
+import {
+  forwardBackendRequest,
+  resolveBackendUrl,
+  resolveProxySigningSecret,
+} from "@/lib/backend-proxy";
 
 export const runtime = "nodejs";
 
@@ -16,7 +20,10 @@ async function proxyRequest(request: Request, context: RouteContext): Promise<Re
       process.env.NODE_ENV,
       process.env.COGNISECT_FRONTEND_ENV,
     ),
-    secureOwnerCookie: process.env.NODE_ENV === "production",
+    proxySigningSecret: resolveProxySigningSecret(
+      process.env.COGNISECT_PROXY_SIGNING_SECRET,
+      process.env.NODE_ENV,
+    ),
   });
 }
 

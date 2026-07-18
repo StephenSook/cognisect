@@ -1,14 +1,13 @@
-import {
-  generateOwnerSecret,
-  ownerRetentionSeconds,
-  serializeOwnerCookie,
-} from "@/lib/owner-session";
+import { createHmac } from "node:crypto";
+import { isIP } from "node:net";
 
 const ALLOWED_METHODS = new Set(["DELETE", "GET", "POST"]);
 const RESPONSE_HEADERS = [
   "cache-control",
+  "content-disposition",
   "content-type",
   "referrer-policy",
+  "retry-after",
   "set-cookie",
 ] as const;
 const OWNER_COOKIE = "cognisect_owner";
@@ -21,8 +20,14 @@ type ProxyInput = {
   path: string[];
   backendUrl: string;
   fetchImplementation?: typeof fetch;
-  secureOwnerCookie?: boolean;
+  proxySigningSecret?: string;
 };
+
+const PROXY_BUCKET_CONTEXT = "cognisect:proxy-client-bucket:v1";
+const PROXY_REQUEST_CONTEXT = "cognisect:proxy-request:v1";
+const PROXY_BUCKET_HEADER = "x-cognisect-client-bucket";
+const PROXY_TIMESTAMP_HEADER = "x-cognisect-proxy-timestamp";
+const PROXY_SIGNATURE_HEADER = "x-cognisect-proxy-signature";
 
 function ownerCookie(cookieHeader: string | null): string | null {
   if (cookieHeader === null) return null;
@@ -54,7 +59,7 @@ function isAllowedPath(method: string, path: string[]): boolean {
   if (path.length !== 4) return false;
   const action = path[3];
   return (
-    (action === "audit" && method === "GET") ||
+    ((action === "audit" || action === "receipt") && method === "GET") ||
     ((action === "probe-approval" || action === "review") && method === "POST")
   );
 }
@@ -100,12 +105,55 @@ export function resolveBackendUrl(
   return value;
 }
 
+export function resolveProxySigningSecret(
+  configuredSecret: string | undefined,
+  nodeEnvironment: string | undefined,
+): string | undefined {
+  if (configuredSecret === undefined && nodeEnvironment !== "production") return undefined;
+  if (
+    configuredSecret === undefined ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(configuredSecret) ||
+    /replace-with|placeholder|change-?me/i.test(configuredSecret)
+  ) {
+    throw new Error(
+      "COGNISECT_PROXY_SIGNING_SECRET must be 32-128 base64url ASCII characters in production",
+    );
+  }
+  return configuredSecret;
+}
+
+function invalidProxyIdentity(): Response {
+  return Response.json({ detail: "invalid proxy identity" }, { status: 400 });
+}
+
+function attachSignedProxyIdentity(
+  request: Request,
+  requestHeaders: Headers,
+  method: string,
+  canonicalPath: string,
+  proxySigningSecret: string,
+): boolean {
+  const clientIp = request.headers.get("x-vercel-forwarded-for")?.trim();
+  if (clientIp === undefined || isIP(clientIp) === 0) return false;
+  const bucket = createHmac("sha256", proxySigningSecret)
+    .update(`${PROXY_BUCKET_CONTEXT}\0${clientIp}`)
+    .digest("hex");
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = createHmac("sha256", proxySigningSecret)
+    .update([PROXY_REQUEST_CONTEXT, timestamp, method, canonicalPath, bucket].join("\n"))
+    .digest("hex");
+  requestHeaders.set(PROXY_BUCKET_HEADER, bucket);
+  requestHeaders.set(PROXY_TIMESTAMP_HEADER, timestamp);
+  requestHeaders.set(PROXY_SIGNATURE_HEADER, signature);
+  return true;
+}
+
 export async function forwardBackendRequest({
   request,
   path,
   backendUrl,
   fetchImplementation = fetch,
-  secureOwnerCookie = false,
+  proxySigningSecret,
 }: ProxyInput): Promise<Response> {
   if (!ALLOWED_METHODS.has(request.method)) {
     return new Response(null, { status: 405, headers: { Allow: "DELETE, GET, POST" } });
@@ -118,28 +166,28 @@ export async function forwardBackendRequest({
     return rejectedPath(path);
 
   const cookie = ownerCookie(request.headers.get("cookie"));
-  if (request.method === "POST" && path.join("/") === "v1/cases" && cookie === null) {
-    return Response.json(
-      { detail: "owner session initialized; retry the exact command" },
-      {
-        status: 428,
-        headers: {
-          "cache-control": "no-store, private",
-          "set-cookie": serializeOwnerCookie(generateOwnerSecret(), {
-            secure: secureOwnerCookie,
-            maxAge: ownerRetentionSeconds(process.env.COGNISECT_RETENTION_DAYS),
-          }),
-        },
-      },
-    );
-  }
-
   const requestHeaders = new Headers();
   const contentType = request.headers.get("content-type");
   const idempotencyKey = request.headers.get("idempotency-key");
   if (contentType !== null) requestHeaders.set("content-type", contentType);
   if (idempotencyKey !== null) requestHeaders.set("idempotency-key", idempotencyKey);
   if (cookie !== null && !isLearnerPath(path)) requestHeaders.set("cookie", cookie);
+
+  const canonicalPath = `/${path.map((segment) => encodeURIComponent(segment)).join("/")}`;
+  if (
+    request.method === "POST" &&
+    path.join("/") === "v1/cases" &&
+    proxySigningSecret !== undefined &&
+    !attachSignedProxyIdentity(
+      request,
+      requestHeaders,
+      request.method,
+      canonicalPath,
+      proxySigningSecret,
+    )
+  ) {
+    return invalidProxyIdentity();
+  }
 
   let body: ArrayBuffer | undefined;
   if (request.method === "POST") {
@@ -152,7 +200,7 @@ export async function forwardBackendRequest({
 
   const base = backendUrl.replace(/\/$/, "");
   const upstream = await fetchImplementation(
-    `${base}/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
+    `${base}${canonicalPath}`,
     {
       method: request.method,
       headers: requestHeaders,

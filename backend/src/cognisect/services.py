@@ -7,18 +7,24 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import delete, exists, func, select
+from sqlalchemy import delete, exists, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cognisect.api_models import (
+    AbstentionOrigin,
     AcceptedHypothesisResponse,
     AnswerConstraints,
+    AuditEventResponse,
+    AuditResponse,
     CompiledProbeResponse,
+    CompilerCandidateProof,
+    CompilerSearchProof,
     CreateCaseRequest,
+    EvidenceReceiptResponse,
     EvidenceStatusResponse,
     LearnerProbeResponse,
     LearnerSubmitRequest,
@@ -31,7 +37,16 @@ from cognisect.api_models import (
     SourceTier,
     WorkflowResponse,
 )
-from cognisect.compiler import CompiledProbe, CompilerAbstention, ProbeHypothesis, SignedProblem
+from cognisect.compiler import (
+    CompiledProbe,
+    CompilerAbstention,
+    ProbeHypothesis,
+    SignedProblem,
+    compile_accepted_probe,
+)
+from cognisect.compiler import (
+    CompilerSearchProof as CompilerSearchProofData,
+)
 from cognisect.config import Settings
 from cognisect.db_models import (
     AcceptedHypothesisRecord,
@@ -53,8 +68,14 @@ from cognisect.db_models import (
     utc_now,
 )
 from cognisect.evidence import LearnerResponseV1, update_evidence
-from cognisect.interpreter import accept_hypotheses
+from cognisect.interpreter import (
+    AcceptedHypothesis,
+    accept_hypotheses,
+    canonical_truth_table_hash,
+    truth_table_for_template,
+)
 from cognisect.models import RuleMappingV1
+from cognisect.receipt import build_evidence_receipt
 from cognisect.repositories import (
     OwnedResourceNotFoundError,
     get_owned_workflow,
@@ -70,7 +91,17 @@ from cognisect.security import (
 )
 from cognisect.workflow import WorkflowState
 
+if TYPE_CHECKING:
+    from cognisect.models import TemplateId
+
 Clock = Callable[[], datetime]
+
+ABSTENTION_ORIGIN_BY_PREDECESSOR: dict[WorkflowState, AbstentionOrigin] = {
+    WorkflowState.ANALYZING: "analysis",
+    WorkflowState.PROBE_READY: "teacher_probe",
+    WorkflowState.AWAITING_RESPONSE: "learner_response",
+    WorkflowState.AWAITING_REVIEW: "teacher_review",
+}
 
 
 class ServiceError(RuntimeError):
@@ -141,6 +172,7 @@ class ModelCallTelemetry:
     prompt_hash: str
     route_version: str
     prompt_cache_key: str
+    response_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +182,7 @@ class AnalyzerResult:
     mapping: RuleMappingV1 | None
     model_id: str
     model_snapshot: str | None = None
+    response_id: str | None = None
     request_id: str | None = None
     model_calls: tuple[ModelCallTelemetry, ...] = ()
     abstention_cause: AnalyzerAbstentionCause | None = None
@@ -191,6 +224,14 @@ class GraphRuntime(Protocol):
         session: AsyncSession | None = None,
     ) -> None:
         """Purge all durable checkpoints for one thread."""
+        ...
+
+
+class ExpiredBucketPurger(Protocol):
+    """Limiter cleanup used by each complete production retention iteration."""
+
+    async def purge_expired(self) -> int:
+        """Delete limiter buckets whose fixed windows have elapsed."""
         ...
 
 
@@ -241,6 +282,95 @@ def _now_utc(clock: Clock) -> datetime:
         msg = "clock must return an aware datetime"
         raise ValueError(msg)
     return value.astimezone(UTC)
+
+
+def _reconstruct_accepted_hypotheses(
+    records: list[AcceptedHypothesisRecord],
+) -> tuple[AcceptedHypothesis, ...]:
+    """Rebuild canonical interpreter inputs from the persisted accepted records."""
+    reconstructed = []
+    try:
+        for record in records:
+            template_id = cast("TemplateId", record.template_id)
+            truth_table = truth_table_for_template(template_id)
+            if canonical_truth_table_hash(truth_table) != record.truth_table_hash:
+                msg = "persisted compiler proof does not reproduce accepted hypotheses"
+                raise ReplayConflictError(msg)
+            reconstructed.append(
+                AcceptedHypothesis(
+                    template_id=template_id,
+                    evidence_refs=tuple(record.evidence_refs),
+                    description=record.description,
+                    rank=record.rank,
+                    truth_table_hash=record.truth_table_hash,
+                    truth_table=truth_table,
+                )
+            )
+    except ValueError as error:
+        msg = "persisted compiler proof does not reproduce accepted hypotheses"
+        raise ReplayConflictError(msg) from error
+    return tuple(reconstructed)
+
+
+def _derive_persisted_proof(
+    probe: CompiledProbeRecord,
+    hypotheses: list[AcceptedHypothesisRecord],
+    predictions: list[ProbePredictionRecord],
+) -> CompilerSearchProofData:
+    """Re-run the compiler and reject any persisted selection/prediction drift."""
+    result = compile_accepted_probe(
+        _reconstruct_accepted_hypotheses(hypotheses),
+        probe.original_a,
+        probe.original_b,
+    )
+    persisted_predictions = tuple(prediction.prediction for prediction in predictions)
+    persisted_prediction_specs = tuple(
+        (prediction.template_id, prediction.rank, prediction.prediction)
+        for prediction in predictions
+    )
+    reproduced_prediction_specs = (
+        tuple((item.template_id, item.rank, item.prediction) for item in result.hypotheses)
+        if isinstance(result, CompiledProbe)
+        else ()
+    )
+    if (
+        not isinstance(result, CompiledProbe)
+        or result.registry_version != probe.registry_version
+        or result.compiler_version != probe.compiler_version
+        or result.original_problem
+        != SignedProblem(a=probe.original_a, b=probe.original_b)
+        or result.chosen_problem != SignedProblem(a=probe.chosen_a, b=probe.chosen_b)
+        or result.correct_prediction != probe.correct_prediction
+        or result.specification_hash != probe.specification_hash
+        or reproduced_prediction_specs != persisted_prediction_specs
+        or result.proof.top_candidates[0].predictions != persisted_predictions
+    ):
+        msg = "persisted compiler proof does not reproduce probe selection and predictions"
+        raise ReplayConflictError(msg)
+    return result.proof
+
+
+def _proof_response(proof: CompilerSearchProofData) -> CompilerSearchProof:
+    """Translate immutable compiler proof values into the strict public DTO."""
+    return CompilerSearchProof(
+        domain_problem_count=cast("Literal[625]", proof.domain_problem_count),
+        eligible_candidate_count=cast("Literal[624]", proof.eligible_candidate_count),
+        separating_candidate_count=proof.separating_candidate_count,
+        chosen_candidate_rank=cast("Literal[1]", proof.chosen_candidate_rank),
+        top_candidates=[
+            CompilerCandidateProof(
+                problem=SignedProblemDTO(a=candidate.problem.a, b=candidate.problem.b),
+                predictions=list(candidate.predictions),
+                distinct_output_count=candidate.distinct_output_count,
+                top_two_separated=candidate.top_two_separated,
+                distinguished_pair_count=candidate.distinguished_pair_count,
+                operand_magnitude=candidate.operand_magnitude,
+                correct_result_magnitude=candidate.correct_result_magnitude,
+                rank=candidate.rank,
+            )
+            for candidate in proof.top_candidates
+        ],
+    )
 
 
 class WorkflowService:
@@ -297,6 +427,11 @@ class WorkflowService:
                 )
             )
         return owner_secret
+
+    async def authorize_owner_capability(self, owner_secret: str) -> None:
+        """Validate an owner capability without reading or mutating educational content."""
+        async with self._sessions() as session:
+            await self._owner_for_secret(session, owner_secret)
 
     async def _register_and_lock_owner(
         self,
@@ -402,6 +537,7 @@ class WorkflowService:
             case = CaseRecord(
                 owner_id=owner.id,
                 source_tier=request.source_tier,
+                provenance_record_id=request.provenance_record_id,
                 original_a=request.problem.a,
                 original_b=request.problem.b,
                 observed_work=request.observed_work,
@@ -535,8 +671,6 @@ class WorkflowService:
                 if analyzer_result.mapping is None:
                     msg = "analyzer returned neither a mapping nor an abstention"
                     raise ValueError(msg)  # noqa: TRY301
-                from cognisect.compiler import compile_accepted_probe  # noqa: PLC0415
-
                 compiler_result = compile_accepted_probe(
                     accepted, analysis_input.original_a, analysis_input.original_b
                 )
@@ -629,6 +763,7 @@ class WorkflowService:
                             model_snapshot=call.returned_model_id,
                             requested_model_id=call.requested_model_id,
                             returned_model_id=call.returned_model_id,
+                            response_id=call.response_id,
                             request_id=call.request_id,
                             attempt_ordinal=attempt_ordinal,
                             purpose="legacy",
@@ -662,6 +797,7 @@ class WorkflowService:
                         model_snapshot=analyzer_result.model_snapshot,
                         requested_model_id=analyzer_result.model_id,
                         returned_model_id=analyzer_result.model_snapshot,
+                        response_id=analyzer_result.response_id,
                         request_id=analyzer_result.request_id,
                         attempt_ordinal=1,
                         purpose="legacy",
@@ -686,6 +822,7 @@ class WorkflowService:
                     )
                 )
             workflow.model_snapshot = analyzer_result.model_snapshot
+            workflow.model_response_id = analyzer_result.response_id
             workflow.model_request_id = analyzer_result.request_id
             if analyzer_result.abstention_cause is not None:
                 updated = await transition_workflow(
@@ -1009,6 +1146,9 @@ class WorkflowService:
             )
             for hypothesis, prediction in rows
         )
+        hypothesis_records = [hypothesis for hypothesis, _prediction in rows]
+        prediction_records = [prediction for _hypothesis, prediction in rows]
+        proof = _derive_persisted_proof(probe, hypothesis_records, prediction_records)
         return CompiledProbe(
             registry_version=probe.registry_version,
             compiler_version=probe.compiler_version,
@@ -1017,6 +1157,7 @@ class WorkflowService:
             correct_prediction=probe.correct_prediction,
             hypotheses=hypotheses,
             specification_hash=probe.specification_hash,
+            proof=proof,
         )
 
     async def advance_response_update(self, workflow_id: UUID) -> None:
@@ -1260,143 +1401,186 @@ class WorkflowService:
         """Build the complete teacher DTO while keeping persistence records private."""
         async with self._sessions() as session:
             owner = await self._owner_for_secret(session, owner_secret)
-            workflow = await get_owned_workflow(
-                session, workflow_id=workflow_id, owner_id=owner.id
+            return await self._get_workflow_dto_in_session(
+                session, owner.id, workflow_id
             )
-            case = await session.get(CaseRecord, workflow.case_id)
-            if case is None:
-                msg = "resource not found"
-                raise OwnedResourceNotFoundError(msg)
-            hypotheses = list(
+
+    async def _get_workflow_dto_in_session(
+        self,
+        session: AsyncSession,
+        owner_id: UUID,
+        workflow_id: UUID,
+    ) -> WorkflowResponse:
+        """Build one teacher DTO inside the caller's database snapshot."""
+        workflow = await get_owned_workflow(
+            session, workflow_id=workflow_id, owner_id=owner_id
+        )
+        case = await session.get(CaseRecord, workflow.case_id)
+        if case is None:
+            msg = "resource not found"
+            raise OwnedResourceNotFoundError(msg)
+        hypotheses = list(
+            (
+                await session.scalars(
+                    select(AcceptedHypothesisRecord)
+                    .where(AcceptedHypothesisRecord.workflow_id == workflow_id)
+                    .order_by(AcceptedHypothesisRecord.rank)
+                )
+            ).all()
+        )
+        probe = await session.scalar(
+            select(CompiledProbeRecord).where(
+                CompiledProbeRecord.workflow_id == workflow_id
+            )
+        )
+        predictions = (
+            list(
                 (
                     await session.scalars(
-                        select(AcceptedHypothesisRecord)
-                        .where(AcceptedHypothesisRecord.workflow_id == workflow_id)
-                        .order_by(AcceptedHypothesisRecord.rank)
+                        select(ProbePredictionRecord)
+                        .where(ProbePredictionRecord.compiled_probe_id == probe.id)
+                        .order_by(ProbePredictionRecord.rank)
                     )
                 ).all()
             )
-            probe = await session.scalar(
-                select(CompiledProbeRecord).where(
-                    CompiledProbeRecord.workflow_id == workflow_id
-                )
+            if probe is not None
+            else []
+        )
+        proof = (
+            _derive_persisted_proof(probe, hypotheses, predictions)
+            if probe is not None
+            else None
+        )
+        proposal = await session.scalar(
+            select(GeneratedProposalRecord).where(
+                GeneratedProposalRecord.workflow_id == workflow_id
             )
-            predictions = (
-                list(
-                    (
-                        await session.scalars(
-                            select(ProbePredictionRecord)
-                            .where(ProbePredictionRecord.compiled_probe_id == probe.id)
-                            .order_by(ProbePredictionRecord.rank)
+        )
+        review = await session.scalar(
+            select(TeacherReviewRecord).where(TeacherReviewRecord.workflow_id == workflow_id)
+        )
+        learner_response = await session.scalar(
+            select(LearnerResponseRecord).where(
+                LearnerResponseRecord.workflow_id == workflow_id
+            )
+        )
+        active_token = None
+        if workflow.state == WorkflowState.AWAITING_RESPONSE:
+            active_token = await session.scalar(
+                select(LearnerTokenRecord).where(
+                    LearnerTokenRecord.workflow_id == workflow_id,
+                    LearnerTokenRecord.expires_at > _now_utc(self._clock),
+                    ~exists(
+                        select(LearnerResponseRecord.id).where(
+                            LearnerResponseRecord.learner_token_id
+                            == LearnerTokenRecord.id
                         )
-                    ).all()
+                    ),
+                    ~exists(
+                        select(InvalidLearnerCommandRecord.id).where(
+                            InvalidLearnerCommandRecord.learner_token_id
+                            == LearnerTokenRecord.id
+                        )
+                    ),
                 )
-                if probe is not None
-                else []
             )
-            proposal = await session.scalar(
-                select(GeneratedProposalRecord).where(
-                    GeneratedProposalRecord.workflow_id == workflow_id
-                )
+        learner_response_url = None
+        if active_token is not None:
+            active_secret = derive_learner_secret(
+                active_token.id,
+                active_token.derivation_nonce,
+                self._learner_pepper,
             )
-            review = await session.scalar(
-                select(TeacherReviewRecord).where(TeacherReviewRecord.workflow_id == workflow_id)
+            learner_response_url = (
+                f"{self._settings.public_app_url}/respond/{active_secret}"
             )
-            active_token = None
-            if workflow.state == WorkflowState.AWAITING_RESPONSE:
-                active_token = await session.scalar(
-                    select(LearnerTokenRecord).where(
-                        LearnerTokenRecord.workflow_id == workflow_id,
-                        LearnerTokenRecord.expires_at > _now_utc(self._clock),
-                        ~exists(
-                            select(LearnerResponseRecord.id).where(
-                                LearnerResponseRecord.learner_token_id
-                                == LearnerTokenRecord.id
-                            )
-                        ),
-                        ~exists(
-                            select(InvalidLearnerCommandRecord.id).where(
-                                InvalidLearnerCommandRecord.learner_token_id
-                                == LearnerTokenRecord.id
-                            )
-                        ),
-                    )
+        abstention_origin = None
+        if workflow.state == WorkflowState.ABSTAINED:
+            abstention_predecessor = await session.scalar(
+                select(AuditEventRecord.from_state)
+                .where(
+                    AuditEventRecord.workflow_id == workflow_id,
+                    AuditEventRecord.to_state == WorkflowState.ABSTAINED,
                 )
-            learner_response_url = None
-            if active_token is not None:
-                active_secret = derive_learner_secret(
-                    active_token.id,
-                    active_token.derivation_nonce,
-                    self._learner_pepper,
-                )
-                learner_response_url = (
-                    f"{self._settings.public_app_url}/respond/{active_secret}"
-                )
-            return WorkflowResponse(
-                workflow_id=workflow.id,
-                case_id=workflow.case_id,
-                source_tier=cast("SourceTier", case.source_tier),
-                state=workflow.state.value,
-                schema_version=workflow.schema_version,
-                registry_version=workflow.registry_version,
-                prompt_version=workflow.prompt_version,
-                compiler_version=workflow.compiler_version,
-                model_snapshot=workflow.model_snapshot,
-                model_request_id=workflow.model_request_id,
-                learner_response_url=learner_response_url,
-                created_at=workflow.created_at,
-                updated_at=workflow.updated_at,
-                version=workflow.version,
-                accepted_hypotheses=[
-                    AcceptedHypothesisResponse(
-                        template_id=hypothesis.template_id,
-                        evidence_refs=hypothesis.evidence_refs,
-                        description=hypothesis.description,
-                        rank=hypothesis.rank,
-                        truth_table_hash=hypothesis.truth_table_hash,
-                    )
-                    for hypothesis in hypotheses
-                ],
-                compiled_probe=(
-                    CompiledProbeResponse(
-                        original_problem=SignedProblemDTO(
-                            a=probe.original_a,
-                            b=probe.original_b,
-                        ),
-                        problem=SignedProblemDTO(a=probe.chosen_a, b=probe.chosen_b),
-                        correct_prediction=probe.correct_prediction,
-                        specification_hash=probe.specification_hash,
-                        registry_version=probe.registry_version,
-                        compiler_version=probe.compiler_version,
-                        predictions=[
-                            ProbePredictionResponse(
-                                template_id=prediction.template_id,
-                                rank=prediction.rank,
-                                prediction=prediction.prediction,
-                            )
-                            for prediction in predictions
-                        ],
-                    )
-                    if probe is not None
-                    else None
-                ),
-                deterministic_evidence=[
-                    EvidenceStatusResponse.model_validate(item)
-                    for item in (proposal.evidence if proposal is not None else [])
-                ],
-                review_result=(
-                    ReviewResultResponse(
-                        decision=cast("ReviewDecision", review.decision),
-                        note=review.note,
-                        edited_text=review.edited_text,
-                        created_at=review.created_at,
-                    )
-                    if review is not None
-                    else None
-                ),
-                generated_proposal=(proposal.generated_text if proposal is not None else None),
-                edited_text=(review.edited_text if review is not None else None),
+                .order_by(AuditEventRecord.sequence.desc())
+                .limit(1)
             )
+            if abstention_predecessor is not None:
+                abstention_origin = ABSTENTION_ORIGIN_BY_PREDECESSOR.get(
+                    abstention_predecessor
+                )
+        return WorkflowResponse(
+            workflow_id=workflow.id,
+            case_id=workflow.case_id,
+            source_tier=cast("SourceTier", case.source_tier),
+            provenance_record_id=case.provenance_record_id,
+            state=workflow.state.value,
+            schema_version=workflow.schema_version,
+            registry_version=workflow.registry_version,
+            prompt_version=workflow.prompt_version,
+            compiler_version=workflow.compiler_version,
+            model_snapshot=workflow.model_snapshot,
+            model_response_id=workflow.model_response_id,
+            model_request_id=workflow.model_request_id,
+            learner_response_url=learner_response_url,
+            abstention_origin=abstention_origin,
+            created_at=workflow.created_at,
+            updated_at=workflow.updated_at,
+            version=workflow.version,
+            accepted_hypotheses=[
+                AcceptedHypothesisResponse(
+                    template_id=hypothesis.template_id,
+                    evidence_refs=hypothesis.evidence_refs,
+                    description=hypothesis.description,
+                    rank=hypothesis.rank,
+                    truth_table_hash=hypothesis.truth_table_hash,
+                )
+                for hypothesis in hypotheses
+            ],
+            compiled_probe=(
+                CompiledProbeResponse(
+                    original_problem=SignedProblemDTO(
+                        a=probe.original_a,
+                        b=probe.original_b,
+                    ),
+                    problem=SignedProblemDTO(a=probe.chosen_a, b=probe.chosen_b),
+                    correct_prediction=probe.correct_prediction,
+                    specification_hash=probe.specification_hash,
+                    registry_version=probe.registry_version,
+                    compiler_version=probe.compiler_version,
+                    predictions=[
+                        ProbePredictionResponse(
+                            template_id=prediction.template_id,
+                            rank=prediction.rank,
+                            prediction=prediction.prediction,
+                        )
+                        for prediction in predictions
+                    ],
+                    proof=_proof_response(proof),
+                )
+                if probe is not None and proof is not None
+                else None
+            ),
+            deterministic_evidence=[
+                EvidenceStatusResponse.model_validate(item)
+                for item in (proposal.evidence if proposal is not None else [])
+            ],
+            learner_rationale=(
+                learner_response.rationale if learner_response is not None else None
+            ),
+            review_result=(
+                ReviewResultResponse(
+                    decision=cast("ReviewDecision", review.decision),
+                    note=review.note,
+                    edited_text=review.edited_text,
+                    created_at=review.created_at,
+                )
+                if review is not None
+                else None
+            ),
+            generated_proposal=(proposal.generated_text if proposal is not None else None),
+            edited_text=(review.edited_text if review is not None else None),
+        )
 
     async def review_workflow(
         self,
@@ -1472,15 +1656,51 @@ class WorkflowService:
         async with self._sessions() as session:
             owner = await self._owner_for_secret(session, owner_secret)
             await get_owned_workflow(session, workflow_id=workflow_id, owner_id=owner.id)
-            return list(
-                (
-                    await session.scalars(
-                        select(AuditEventRecord)
-                        .where(AuditEventRecord.workflow_id == workflow_id)
-                        .order_by(AuditEventRecord.sequence)
-                    )
-                ).all()
+            return await self._get_audit_events_in_session(session, workflow_id)
+
+    async def _get_audit_events_in_session(
+        self, session: AsyncSession, workflow_id: UUID
+    ) -> list[AuditEventRecord]:
+        """Read ordered audit events inside the caller's database snapshot."""
+        return list(
+            (
+                await session.scalars(
+                    select(AuditEventRecord)
+                    .where(AuditEventRecord.workflow_id == workflow_id)
+                    .order_by(AuditEventRecord.sequence)
+                )
+            ).all()
+        )
+
+    async def get_evidence_receipt(
+        self, owner_secret: str, workflow_id: UUID
+    ) -> EvidenceReceiptResponse:
+        """Build one owner-authorized receipt from a repeatable-read snapshot."""
+        async with self._sessions() as session, session.begin():
+            await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+            owner = await self._owner_for_secret(session, owner_secret)
+            workflow = await self._get_workflow_dto_in_session(
+                session, owner.id, workflow_id
             )
+            events = await self._get_audit_events_in_session(session, workflow_id)
+        return build_evidence_receipt(
+            workflow=workflow,
+            audit=AuditResponse(
+                workflow_id=workflow_id,
+                events=[
+                    AuditEventResponse(
+                        sequence=event.sequence,
+                        from_state=(
+                            event.from_state.value if event.from_state is not None else None
+                        ),
+                        to_state=event.to_state.value,
+                        version=event.version,
+                        occurred_at=event.occurred_at,
+                    )
+                    for event in events
+                ],
+            ),
+        )
 
     async def delete_workflow(
         self,
@@ -1548,6 +1768,7 @@ class RetentionService:
         *,
         retention_days: int = 30,
         graph_runtime: GraphRuntime | None = None,
+        rate_limiter: ExpiredBucketPurger | None = None,
     ) -> None:
         """Initialize a Postgres retention selector with a bounded day count."""
         if retention_days < 1:
@@ -1556,6 +1777,7 @@ class RetentionService:
         self._sessions = session_factory
         self._retention_days = retention_days
         self._graph_runtime = graph_runtime
+        self._rate_limiter = rate_limiter
 
     async def select_expired(self, *, now: datetime | None = None) -> list[UUID]:
         """Return stable workflow IDs whose cases exceed retention."""
@@ -1587,8 +1809,13 @@ class RetentionService:
                         CaseRecord.owner_id,
                     )
                     .join(CaseRecord, CaseRecord.id == WorkflowRecord.case_id)
+                    .join(OwnerRecord, OwnerRecord.id == CaseRecord.owner_id)
                     .where(CaseRecord.created_at < cutoff)
                     .order_by(WorkflowRecord.id)
+                    .with_for_update(
+                        of=(WorkflowRecord, OwnerRecord),
+                        skip_locked=True,
+                    )
                 )
             ).all()
             for workflow_id, thread_id, _case_id, _owner_id in rows:
@@ -1635,4 +1862,7 @@ class RetentionService:
                         ),
                     )
                 )
-            return len(rows)
+            purged_cases = len(rows)
+        if self._rate_limiter is not None:
+            await self._rate_limiter.purge_expired()
+        return purged_cases

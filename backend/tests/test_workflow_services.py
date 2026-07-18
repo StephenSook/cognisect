@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from cognisect.api_models import (
     CreateCaseRequest,
@@ -28,10 +28,12 @@ from cognisect.db_models import (
     LearnerTokenRecord,
     OwnerRecord,
     ProbePredictionRecord,
+    RateLimitWindowRecord,
     TeacherReviewRecord,
     WorkflowRecord,
 )
 from cognisect.models import RuleInstanceV1, RuleMappingV1
+from cognisect.rate_limit import PostgresRateLimiter
 from cognisect.services import (
     AnalysisInput,
     AnalyzerExecutionError,
@@ -64,6 +66,7 @@ class FakeAnalyzer:
             mapping=self.mapping,
             model_id="test-model",
             model_snapshot="test-model-2026-07-16",
+            response_id="resp_test_public_metadata",
             request_id="req_test_public_metadata",
             proposal_draft=self.proposal_draft,
         )
@@ -97,6 +100,8 @@ def test_settings() -> Settings:
         database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="",
     )
@@ -152,6 +157,47 @@ async def test_owner_creation_hashes_secret_and_binds_case_and_workflow(
 
 
 @pytest.mark.postgres
+async def test_case_provenance_is_persisted_and_returned_only_on_owner_workflow_dto(
+    service, db_engine
+):
+    request = CreateCaseRequest(
+        source_tier="educator_authored",
+        provenance_record_id="cognisect-ea-001",
+        problem={"a": -3, "b": 5},
+        observed_work="-3 - 5 = 2",
+    )
+    created = await service.create_case(request, idempotency_key="provenance-case-key")
+
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        case = await session.get(CaseRecord, created.case_id)
+    assert case is not None
+    assert case.provenance_record_id == "cognisect-ea-001"
+
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.provenance_record_id == "cognisect-ea-001"
+
+
+@pytest.mark.postgres
+async def test_free_educator_entry_preserves_null_provenance(service, db_engine) -> None:
+    request = CreateCaseRequest(
+        source_tier="educator_authored",
+        problem={"a": -3, "b": 5},
+        observed_work="teacher-authored free entry",
+    )
+    created = await service.create_case(request, idempotency_key="free-entry-case-key")
+
+    factory = create_session_factory(db_engine)
+    async with factory() as session:
+        case = await session.get(CaseRecord, created.case_id)
+    assert case is not None
+    assert case.provenance_record_id is None
+
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.provenance_record_id is None
+
+
+@pytest.mark.postgres
 async def test_analysis_persists_probe_and_predictions_before_any_token(
     service, db_engine, case_request
 ):
@@ -170,6 +216,58 @@ async def test_analysis_persists_probe_and_predictions_before_any_token(
     assert len(probe.specification_hash) == 64
     assert prediction_count == 2
     assert token_count == 0
+
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin is None
+    assert dto.compiled_probe is not None
+    assert dto.compiled_probe.proof.domain_problem_count == 625
+    assert dto.compiled_probe.proof.eligible_candidate_count == 624
+    assert dto.compiled_probe.proof.chosen_candidate_rank == 1
+    assert dto.compiled_probe.proof.top_candidates[0].problem == dto.compiled_probe.problem
+    assert dto.compiled_probe.proof.top_candidates[0].predictions == [
+        prediction.prediction for prediction in dto.compiled_probe.predictions
+    ]
+
+
+@pytest.mark.postgres
+async def test_teacher_dto_fails_closed_when_persisted_probe_predictions_do_not_reproduce(
+    service, db_engine, case_request
+):
+    created, _workflow = await prepare_probe(service, case_request)
+    factory = create_session_factory(db_engine)
+    async with factory() as session, session.begin():
+        prediction = await session.scalar(select(ProbePredictionRecord))
+        assert prediction is not None
+        prediction.prediction += 1
+
+    with pytest.raises(ReplayConflictError, match="persisted compiler proof"):
+        await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    ("field", "tampered_value"),
+    [
+        ("correct_prediction", 9_999),
+        ("registry_version", "rule_registry.tampered"),
+        ("compiler_version", "counterexample_compiler.tampered"),
+        ("specification_hash", "f" * 64),
+        ("original_a", -2),
+        ("chosen_a", 9),
+    ],
+)
+async def test_teacher_dto_fails_closed_when_persisted_probe_header_does_not_reproduce(
+    service, db_engine, case_request, field, tampered_value
+):
+    created, _workflow = await prepare_probe(service, case_request)
+    factory = create_session_factory(db_engine)
+    async with factory() as session, session.begin():
+        probe = await session.scalar(select(CompiledProbeRecord))
+        assert probe is not None
+        setattr(probe, field, tampered_value)
+
+    with pytest.raises(ReplayConflictError, match="persisted compiler proof"):
+        await service.get_workflow_dto(created.owner_secret, created.workflow_id)
 
 
 @pytest.mark.postgres
@@ -307,6 +405,25 @@ async def test_no_separating_probe_transitions_to_abstained(
         idempotency_key="analyze",
     )
     assert workflow.state == WorkflowState.ABSTAINED
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin == "analysis"
+
+
+@pytest.mark.postgres
+async def test_teacher_probe_decline_origin_comes_from_transition_predecessor(
+    service, case_request
+):
+    created, workflow = await prepare_probe(service, case_request)
+    declined = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=False),
+        idempotency_key="decline-origin",
+    )
+
+    assert declined.workflow.state == WorkflowState.ABSTAINED
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin == "teacher_probe"
 
 
 @pytest.mark.postgres
@@ -471,6 +588,8 @@ async def test_concurrent_invalid_answers_abstain_once_and_replay_one_receipt(
     assert len({receipt.receipt_id for receipt in receipts}) == 1
     persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
     assert persisted.state == WorkflowState.ABSTAINED
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin == "learner_response"
     factory = create_session_factory(db_engine)
     async with factory() as session:
         assert await session.scalar(select(func.count(InvalidLearnerCommandRecord.id))) == 1
@@ -552,6 +671,29 @@ async def test_full_loop_review_and_audit_readback(service, case_request):
 
 
 @pytest.mark.postgres
+async def test_owner_workflow_dto_returns_review_only_learner_rationale(service, case_request):
+    created, workflow = await prepare_probe(service, case_request)
+    approved = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=True),
+        idempotency_key="rationale-approve",
+    )
+    learner = await service.get_learner_probe(approved.token)
+    await service.submit_learner_response(
+        token=approved.token,
+        request=LearnerSubmitRequest(
+            answer=learner.problem.a - learner.problem.b,
+            rationale="I kept the second sign and counted left.",
+        ),
+        idempotency_key="rationale-submit",
+    )
+
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.learner_rationale == "I kept the second sign and counted left."
+
+
+@pytest.mark.postgres
 async def test_final_teacher_abstention_persists_before_graph_resume_and_replays(
     service, db_engine, case_request
 ):
@@ -604,6 +746,7 @@ async def test_final_teacher_abstention_persists_before_graph_resume_and_replays
     assert graph.resumes == 2
     dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
     assert dto.state == "ABSTAINED"
+    assert dto.abstention_origin == "teacher_review"
     assert dto.edited_text is None
     events = await service.get_audit(created.owner_secret, created.workflow_id)
     assert events[-1].to_state == WorkflowState.ABSTAINED
@@ -815,6 +958,52 @@ async def test_retention_selects_and_purges_cases_older_than_configured_days(
 
 
 @pytest.mark.postgres
+async def test_concurrent_retention_instances_keep_one_owner_batch_together(
+    service, db_engine, case_request, test_settings
+):
+    owner_secret = await service.bootstrap_owner()
+    first = await service.create_case(
+        case_request,
+        idempotency_key="retention-owner-first",
+        owner_secret=owner_secret,
+    )
+    second = await service.create_case(
+        case_request,
+        idempotency_key="retention-owner-second",
+        owner_secret=owner_secret,
+    )
+    factory = create_session_factory(db_engine)
+    now = datetime.now(UTC)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(CaseRecord)
+            .where(CaseRecord.id.in_((first.case_id, second.case_id)))
+            .values(created_at=now - timedelta(days=test_settings.retention_days + 1))
+        )
+
+    results = await asyncio.wait_for(
+        asyncio.gather(
+            RetentionService(
+                factory,
+                retention_days=test_settings.retention_days,
+            ).purge_expired(now=now),
+            RetentionService(
+                factory,
+                retention_days=test_settings.retention_days,
+            ).purge_expired(now=now),
+        ),
+        timeout=3,
+    )
+
+    assert sorted(results) == [0, 2]
+    async with factory() as session:
+        assert await session.scalar(select(func.count(DeletionAuditTombstoneRecord.id))) == 2
+        assert await session.scalar(select(func.count(OwnerRecord.id))) == 0
+        assert await session.scalar(select(func.count(CaseRecord.id))) == 0
+        assert await session.scalar(select(func.count(WorkflowRecord.id))) == 0
+
+
+@pytest.mark.postgres
 async def test_retention_purges_abandoned_empty_owner_sessions(
     service, db_engine, test_settings
 ):
@@ -830,6 +1019,34 @@ async def test_retention_purges_abandoned_empty_owner_sessions(
     assert await retention.purge_expired(now=now) == 0
     async with factory() as session:
         assert await session.scalar(select(func.count(OwnerRecord.id))) == 0
+
+
+@pytest.mark.postgres
+async def test_retention_iteration_also_purges_expired_limiter_buckets(
+    db_engine, db_session, test_settings
+) -> None:
+    del db_session
+    factory = create_session_factory(db_engine)
+    limiter = PostgresRateLimiter(
+        factory,
+        abuse_key_pepper=test_settings.abuse_key_pepper,
+    )
+    await limiter.consume("case_creation", "203.0.113.20", 1, 3_600)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(RateLimitWindowRecord).values(
+                expires_at=datetime.now(UTC) - timedelta(seconds=1)
+            )
+        )
+
+    retention = RetentionService(
+        factory,
+        retention_days=test_settings.retention_days,
+        rate_limiter=limiter,
+    )
+    assert await retention.purge_expired() == 0
+    async with factory() as session:
+        assert await session.scalar(select(func.count(RateLimitWindowRecord.bucket_hash))) == 0
 
 
 @pytest.mark.postgres

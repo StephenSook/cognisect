@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -27,7 +28,7 @@ from cognisect.db_models import (
     WorkflowRecord,
 )
 from cognisect.model_analyzer import ResponsesAnalyzer
-from cognisect.model_attempts import PostgresAttemptJournal
+from cognisect.model_attempts import ModelAttemptPlan, PostgresAttemptJournal
 from cognisect.model_policy import InstructionalNotePlanV1, TerraAnalysisV1
 from cognisect.models import RuleInstanceV1, RuleMappingV1
 from cognisect.repositories import transition_workflow
@@ -47,6 +48,8 @@ def _settings(**overrides) -> Settings:
         "database_url": "postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         "owner_secret_pepper": "o" * 32,
         "learner_token_pepper": "l" * 32,
+        "abuse_key_pepper": "a" * 32,
+        "proxy_signing_secret": "p" * 32,
         "public_app_url": "https://cognisect.example",
         "openai_api_key": "sk-test-" + ("k" * 32),
     }
@@ -83,6 +86,7 @@ def test_model_call_record_has_complete_content_free_telemetry_columns() -> None
     assert {
         "requested_model_id",
         "returned_model_id",
+        "response_id",
         "request_id",
         "status",
         "latency_ms",
@@ -96,6 +100,9 @@ def test_model_call_record_has_complete_content_free_telemetry_columns() -> None
         "route_version",
         "prompt_cache_key",
     } <= set(inspect(ModelCallRecord).columns.keys())
+    assert {"model_response_id", "model_request_id"} <= set(
+        inspect(WorkflowRecord).columns.keys()
+    )
     assert {
         "prompt",
         "response",
@@ -111,13 +118,15 @@ class RefusingAnalyzer:
             mapping=None,
             model_id="gpt-5.6-terra",
             model_snapshot="gpt-5.6-terra",
-            request_id="resp_refused",
+            response_id="resp_refused",
+            request_id="req_refused",
             abstention_cause="refusal",
             model_calls=(
                 ModelCallTelemetry(
                     requested_model_id="gpt-5.6-terra",
                     returned_model_id="gpt-5.6-terra",
-                    request_id="resp_refused",
+                    response_id="resp_refused",
+                    request_id="req_refused",
                     status="refused",
                     latency_ms=17,
                     input_tokens=100,
@@ -168,8 +177,179 @@ async def test_typed_model_abstention_persists_all_calls_and_abstains_not_fails(
     assert len(calls) == 1
     assert calls[0].requested_model_id == "gpt-5.6-terra"
     assert calls[0].returned_model_id == "gpt-5.6-terra"
+    assert calls[0].response_id == "resp_refused"
+    assert calls[0].request_id == "req_refused"
+    assert workflow.model_response_id == "resp_refused"
+    assert workflow.model_request_id == "req_refused"
     assert calls[0].reasoning_tokens == 0
     assert calls[0].prompt_hash == "a" * 64
+
+
+def _journal_plan(workflow: WorkflowRecord) -> ModelAttemptPlan:
+    return ModelAttemptPlan(
+        case_id=workflow.case_id,
+        workflow_id=workflow.id,
+        attempt_ordinal=1,
+        purpose="terra",
+        repair=False,
+        requested_model_id="gpt-5.6-terra",
+        prompt_hash="6" * 64,
+        route_version="model_route.v1",
+        prompt_cache_key="cognisect.analysis_prompt.v2.terra",
+    )
+
+
+def _journal_telemetry(**overrides: object) -> ModelCallTelemetry:
+    values: dict[str, object] = {
+        "requested_model_id": "gpt-5.6-terra",
+        "returned_model_id": "gpt-5.6-terra",
+        "response_id": "resp_journal",
+        "request_id": "req_journal",
+        "status": "completed",
+        "latency_ms": 11,
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "reasoning_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "cost_usd": Decimal("0.000550"),
+        "prompt_hash": "6" * 64,
+        "route_version": "model_route.v1",
+        "prompt_cache_key": "cognisect.analysis_prompt.v2.terra",
+    }
+    return ModelCallTelemetry(**{**values, **overrides})
+
+
+def _journal_artifact() -> TerraAnalysisV1:
+    return TerraAnalysisV1(
+        schema_version="terra_analysis.v1",
+        mapping=RuleMappingV1(
+            schema_version="rule_mapping.v1",
+            hypotheses=[
+                RuleInstanceV1(
+                    template_id="add_subtrahend",
+                    evidence_refs=["observed_work"],
+                    description="Adds the second operand.",
+                    rank=1,
+                ),
+                RuleInstanceV1(
+                    template_id="absolute_difference",
+                    evidence_refs=["observed_work"],
+                    description="Uses the magnitude difference.",
+                    rank=2,
+                ),
+            ],
+        ),
+        instructional_note_plan=InstructionalNotePlanV1(
+            schema_version="instructional_note_plan.v1",
+            observation="multiple_hypotheses_fit_observed_work",
+            teacher_action="review_compiled_probe",
+        ),
+    )
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        _journal_telemetry(response_id=None),
+        _journal_telemetry(returned_model_id="gpt-5.6-sol"),
+        _journal_telemetry(response_id="same-id", request_id="same-id"),
+        _journal_telemetry(requested_model_id="gpt-5.6-sol"),
+        _journal_telemetry(status="malformed_output"),
+    ],
+)
+async def test_attempt_journal_never_stages_artifact_for_invalid_completion(
+    db_engine,
+    db_session,
+    seeded_workflow,
+    telemetry: ModelCallTelemetry,
+) -> None:
+    del db_session
+    workflow, _owner = seeded_workflow
+    sessions = create_session_factory(db_engine)
+    journal = PostgresAttemptJournal(sessions)
+    plan = _journal_plan(workflow)
+    await journal.plan(plan)
+
+    await journal.finalize(plan, telemetry, _journal_artifact())
+
+    async with sessions() as session:
+        call = await session.scalar(select(ModelCallRecord))
+        staged_count = await session.scalar(select(func.count(AnalysisStepResultRecord.id)))
+    assert call is not None
+    assert staged_count == 0
+    assert call.status == (
+        "policy_failure" if telemetry.status == "completed" else telemetry.status
+    )
+    assert call.input_tokens == telemetry.input_tokens
+    assert call.cost_usd == telemetry.cost_usd
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        _journal_telemetry(),
+        _journal_telemetry(
+            returned_model_id="gpt-5.6-terra-2026-07-16",
+            request_id=None,
+        ),
+    ],
+)
+async def test_attempt_journal_stages_only_valid_completed_identity(
+    db_engine,
+    db_session,
+    seeded_workflow,
+    telemetry: ModelCallTelemetry,
+) -> None:
+    del db_session
+    workflow, _owner = seeded_workflow
+    sessions = create_session_factory(db_engine)
+    journal = PostgresAttemptJournal(sessions)
+    plan = _journal_plan(workflow)
+    await journal.plan(plan)
+
+    await journal.finalize(plan, telemetry, _journal_artifact())
+
+    async with sessions() as session:
+        call = await session.scalar(select(ModelCallRecord))
+        staged_count = await session.scalar(select(func.count(AnalysisStepResultRecord.id)))
+    assert call is not None
+    assert call.status == "completed"
+    assert staged_count == 1
+
+
+@pytest.mark.postgres
+async def test_attempt_journal_validates_against_persisted_immutable_plan(
+    db_engine,
+    db_session,
+    seeded_workflow,
+) -> None:
+    del db_session
+    workflow, _owner = seeded_workflow
+    sessions = create_session_factory(db_engine)
+    journal = PostgresAttemptJournal(sessions)
+    persisted_plan = _journal_plan(workflow)
+    await journal.plan(persisted_plan)
+    conflicting_plan = replace(
+        persisted_plan,
+        requested_model_id="gpt-5.6-sol",
+    )
+    matching_conflict = _journal_telemetry(
+        requested_model_id="gpt-5.6-sol",
+        returned_model_id="gpt-5.6-sol",
+    )
+
+    await journal.finalize(conflicting_plan, matching_conflict, _journal_artifact())
+
+    async with sessions() as session:
+        call = await session.scalar(select(ModelCallRecord))
+        staged_count = await session.scalar(select(func.count(AnalysisStepResultRecord.id)))
+    assert call is not None
+    assert call.requested_model_id == "gpt-5.6-terra"
+    assert call.status == "policy_failure"
+    assert staged_count == 0
 
 
 class ForbiddenResponses:
@@ -217,6 +397,7 @@ class OneTerraResponses:
         )
         return SimpleNamespace(
             id="resp_crash_gap",
+            _request_id="req_crash_gap",
             model="gpt-5.6-terra",
             output=[
                 SimpleNamespace(
@@ -552,6 +733,8 @@ async def test_analysis_recovers_finalized_artifact_after_process_crash_without_
         )
     )
     assert discarded.mapping is not None
+    assert discarded.response_id == "resp_crash_gap"
+    assert discarded.request_id == "req_crash_gap"
     assert provider.responses.calls == 1
 
     recovered_provider = ForbiddenClient()
@@ -572,8 +755,14 @@ async def test_analysis_recovers_finalized_artifact_after_process_crash_without_
     )
 
     assert recovered.state == WorkflowState.PROBE_READY
+    assert recovered.model_response_id == "resp_crash_gap"
+    assert recovered.model_request_id == "req_crash_gap"
     assert recovered_provider.responses.calls == []
     async with sessions() as session:
+        persisted_call = await session.scalar(select(ModelCallRecord))
+        assert persisted_call is not None
+        assert persisted_call.response_id == "resp_crash_gap"
+        assert persisted_call.request_id == "req_crash_gap"
         assert await session.scalar(select(func.count(ModelCallRecord.id))) == 1
         assert await session.scalar(select(func.count(AnalysisStepResultRecord.id))) == 1
 
@@ -638,6 +827,7 @@ async def test_task3_cost_preflight_persists_truthful_nonlegacy_telemetry(
         call = await session.scalar(select(ModelCallRecord))
     assert call is not None
     assert call.status == "cost_blocked"
+    assert call.response_id is None
     assert call.request_id is None
     assert call.returned_model_id is None
     assert call.route_version == "model_route.v1"

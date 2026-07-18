@@ -1,9 +1,49 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { operations } from "@/lib/api/schema";
 import { createApiClient } from "@/lib/api/client";
 import { ownerCookieHeader, resolveFrontendUrl } from "@/lib/api/server-request";
 
+type JsonBody<Response> = Response extends {
+  content: { "application/json": infer Body };
+} ? Body : never;
+
+type Ready503 = JsonBody<operations["ready_route_ready_get"]["responses"][503]>;
+type Case400 = JsonBody<
+  operations["create_case_route_v1_cases_post"]["responses"][400]
+>;
+type Case429 = JsonBody<
+  operations["create_case_route_v1_cases_post"]["responses"][429]
+>;
+type Analysis429 = JsonBody<
+  operations["analyze_case_route_v1_cases__case_id__analysis_post"]["responses"][429]
+>;
+
 describe("generated API client wrapper", () => {
+  it("types production boundary failures as JSON detail bodies with numeric retry headers", () => {
+    const bodies: [Ready503, Case400, Case429, Analysis429] = [
+      { detail: "not ready" },
+      { detail: "invalid proxy identity" },
+      { detail: "rate limit exceeded" },
+      { detail: "rate limit exceeded" },
+    ];
+    const caseHeaders: operations["create_case_route_v1_cases_post"]["responses"][429]["headers"] = {
+      "Retry-After": 37,
+    };
+    const analysisHeaders: operations["analyze_case_route_v1_cases__case_id__analysis_post"]["responses"][429]["headers"] = {
+      "Retry-After": 19,
+    };
+
+    expect(bodies.map((body) => body.detail)).toEqual([
+      "not ready",
+      "invalid proxy identity",
+      "rate limit exceeded",
+      "rate limit exceeded",
+    ]);
+    expect(caseHeaders["Retry-After"]).toBe(37);
+    expect(analysisHeaders["Retry-After"]).toBe(19);
+  });
+
   it("uses the same-origin proxy with generated response types", async () => {
     const fetchImplementation = vi
       .fn<(request: Request) => Promise<Response>>()
@@ -13,6 +53,7 @@ describe("generated API client wrapper", () => {
         schema_version: "workflow.v1",
         registry_version: "rule_registry.v1",
         compiler_version: "counterexample_compiler.v1",
+        source_revision: "development",
         }),
       );
     const client = createApiClient(

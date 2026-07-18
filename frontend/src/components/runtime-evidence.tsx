@@ -22,6 +22,7 @@ export function RuntimeEvidence({
         <div><dt>Workflow schema</dt><dd>{version.schema_version}</dd></div>
         <div><dt>Rule registry</dt><dd>{version.registry_version}</dd></div>
         <div><dt>Compiler</dt><dd>{version.compiler_version}</dd></div>
+        <div><dt>Source revision</dt><dd>{version.source_revision}</dd></div>
       </dl>
       <h2>Route policy</h2>
       <ul className="route-policy">
@@ -37,7 +38,8 @@ export function RuntimeEvidence({
           <dl className="runtime-grid mono">
             <div><dt>Source tier</dt><dd>{workflow.source_tier}</dd></div>
             <div><dt>Model snapshot</dt><dd>{workflow.model_snapshot ?? "Not recorded"}</dd></div>
-            <div><dt>Model request ID</dt><dd>{workflow.model_request_id ?? "Not recorded"}</dd></div>
+            <div><dt>Model response ID</dt><dd>{workflow.model_response_id ?? "Not recorded"}</dd></div>
+            <div><dt>Provider request ID</dt><dd>{workflow.model_request_id ?? "Not recorded"}</dd></div>
             <div><dt>Prompt version</dt><dd>{workflow.prompt_version}</dd></div>
           </dl>
         </section>

@@ -208,6 +208,35 @@ def calculate_cost_usd(model_id: str, usage: TokenUsage) -> Decimal:
     return cost.quantize(Decimal("0.000001"))
 
 
+def returned_model_is_allowed(requested: str, returned: str) -> bool:
+    """Allow only the frozen requested model or one of its provider snapshots."""
+    return bool(returned) and (
+        returned == requested or returned.startswith(f"{requested}-")
+    )
+
+
+def provider_telemetry_identity_is_valid(
+    *,
+    expected_requested_model_id: str,
+    reported_requested_model_id: str,
+    returned_model_id: str | None,
+    response_id: str | None,
+    request_id: object,
+) -> bool:
+    """Validate provider identity against one immutable requested-model plan."""
+    return (
+        isinstance(expected_requested_model_id, str)
+        and bool(expected_requested_model_id)
+        and reported_requested_model_id == expected_requested_model_id
+        and isinstance(returned_model_id, str)
+        and returned_model_is_allowed(expected_requested_model_id, returned_model_id)
+        and isinstance(response_id, str)
+        and bool(response_id)
+        and (request_id is None or (isinstance(request_id, str) and bool(request_id)))
+        and request_id != response_id
+    )
+
+
 def initial_route(case: CreateCaseRequest) -> tuple[str, ...]:
     """Choose Luna only when approved source tiers genuinely require extraction."""
     already_structured = False

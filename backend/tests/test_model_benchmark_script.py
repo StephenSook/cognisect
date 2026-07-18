@@ -81,8 +81,54 @@ def test_checked_report_validator_rejects_secret_shaped_fields(tmp_path) -> None
 
 def test_checked_in_live_report_matches_the_frozen_protocol() -> None:
     protocol_hash = RUNNER._sha256(ROOT / "data" / "evaluation" / "protocol.v1.json")
+    report = json.loads(
+        (ROOT / "data" / "evaluation" / "benchmark-report.v1.json").read_text()
+    )
 
     assert RUNNER.validate_checked_report(
         ROOT / "data" / "evaluation" / "benchmark-report.v1.json",
         expected_protocol_sha256=protocol_hash,
     )
+    item_calls = [
+        item[purpose]
+        for item in report["items"]
+        for purpose in ("terra", "sol")
+    ]
+    telemetry_calls = report["telemetry"]["calls"]
+    for call in [*item_calls, *telemetry_calls]:
+        assert call["response_id"].startswith("resp_")
+        assert call["request_id"] is None
+
+
+def test_checked_report_validator_rejects_response_ids_mislabeled_as_request_ids(
+    tmp_path,
+) -> None:
+    report = json.loads(
+        (ROOT / "data" / "evaluation" / "benchmark-report.v1.json").read_text()
+    )
+    report["telemetry"]["calls"][0].pop("response_id", None)
+    report["telemetry"]["calls"][0]["request_id"] = "resp_mislabeled"
+    path = tmp_path / "mislabeled.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    assert RUNNER.validate_checked_report(
+        path,
+        expected_protocol_sha256=report["protocol_sha256"],
+    ) is False
+
+
+def test_checked_report_validator_rejects_equal_response_and_request_ids(
+    tmp_path,
+) -> None:
+    report = json.loads(
+        (ROOT / "data" / "evaluation" / "benchmark-report.v1.json").read_text()
+    )
+    call = report["telemetry"]["calls"][0]
+    call["request_id"] = call["response_id"]
+    path = tmp_path / "conflated.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    assert RUNNER.validate_checked_report(
+        path,
+        expected_protocol_sha256=report["protocol_sha256"],
+    ) is False

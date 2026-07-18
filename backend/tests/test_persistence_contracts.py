@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import inspect, select
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import DBAPIError
 
 from cognisect.db_models import (
@@ -26,6 +28,7 @@ from cognisect.db_models import (
     ModelCallRecord,
     OwnerRecord,
     ProbePredictionRecord,
+    RateLimitWindowRecord,
     TeacherReviewRecord,
     WorkflowRecord,
 )
@@ -52,6 +55,7 @@ EXPECTED_TABLES = {
     "model_calls",
     "owners",
     "probe_predictions",
+    "rate_limit_windows",
     "teacher_reviews",
     "workflows",
 }
@@ -76,6 +80,7 @@ def test_metadata_has_every_required_record_type():
         IdempotencyRecord,
         InvalidLearnerCommandRecord,
         AuditEventRecord,
+        RateLimitWindowRecord,
     }
 
 
@@ -87,6 +92,9 @@ def test_schema_never_has_raw_owner_or_learner_secret_columns():
     assert "derivation_nonce" in token_columns
     assert {"secret", "owner_secret", "raw_secret"}.isdisjoint(owner_columns)
     assert {"token", "learner_token", "raw_token"}.isdisjoint(token_columns)
+    limiter_columns = set(inspect(RateLimitWindowRecord).columns.keys())
+    assert "bucket_hash" in limiter_columns
+    assert {"ip", "ip_address", "client_host", "owner_secret"}.isdisjoint(limiter_columns)
 
 
 def test_replay_metadata_is_hash_only_and_probe_hashes_are_not_global_ids():
@@ -112,6 +120,66 @@ def test_generated_and_teacher_edited_text_are_separate_records():
     assert "generated_text" not in review_columns
 
 
+def test_case_provenance_is_a_nullable_column_for_historical_rows() -> None:
+    provenance_column = inspect(CaseRecord).columns.provenance_record_id
+    assert provenance_column.nullable is True
+    assert provenance_column.type.length == 80
+
+
+@pytest.mark.postgres
+async def test_case_provenance_migration_preserves_historical_rows_as_null(
+    db_engine, monkeypatch
+) -> None:
+    owner_id = UUID("00000000-0000-4000-8000-000000000301")
+    case_id = UUID("00000000-0000-4000-8000-000000000302")
+    alembic_config = Config("alembic.ini")
+    monkeypatch.setenv(
+        "COGNISECT_DATABASE_URL",
+        db_engine.url.render_as_string(hide_password=False),
+    )
+
+    await db_engine.dispose()
+    command.downgrade(alembic_config, "a61bd8e7c204")
+    try:
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO owners (id, secret_hash, created_at) "
+                    "VALUES (:id, :secret_hash, now())"
+                ),
+                {"id": owner_id, "secret_hash": "3" * 64},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO cases "
+                    "(id, owner_id, source_tier, original_a, original_b, observed_work, "
+                    "deidentified_attestation, created_at, updated_at) "
+                    "VALUES (:id, :owner_id, 'educator_authored', -3, 5, '-3 - 5 = 2', "
+                    "false, now(), now())"
+                ),
+                {"id": case_id, "owner_id": owner_id},
+            )
+
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.connect() as connection:
+            historical_case = (
+                await connection.execute(
+                    text("SELECT provenance_record_id FROM cases WHERE id = :id"),
+                    {"id": case_id},
+                )
+            ).one()
+        assert historical_case.provenance_record_id is None
+    finally:
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text("DELETE FROM owners WHERE id = :id"),
+                {"id": owner_id},
+            )
+
+
 def test_model_attempt_journal_has_stable_content_free_identity_and_staged_results():
     call_columns = set(inspect(ModelCallRecord).columns.keys())
     result_columns = set(inspect(AnalysisStepResultRecord).columns.keys())
@@ -133,6 +201,131 @@ def test_model_attempt_journal_has_stable_content_free_identity_and_staged_resul
         result_columns
     )
     assert {"prompt", "response", "observed_work"}.isdisjoint(call_columns)
+
+
+@pytest.mark.postgres
+async def test_model_identity_migration_preserves_historical_response_ids(
+    db_engine, db_session, monkeypatch
+) -> None:
+    del db_session
+    owner_id = UUID("00000000-0000-4000-8000-000000000401")
+    case_id = UUID("00000000-0000-4000-8000-000000000402")
+    workflow_id = UUID("00000000-0000-4000-8000-000000000403")
+    call_id = UUID("00000000-0000-4000-8000-000000000404")
+    thread_id = UUID("00000000-0000-4000-8000-000000000405")
+    alembic_config = Config("alembic.ini")
+    monkeypatch.setenv(
+        "COGNISECT_DATABASE_URL",
+        db_engine.url.render_as_string(hide_password=False),
+    )
+
+    async with db_engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO owners (id, secret_hash, created_at) "
+                "VALUES (:id, :secret_hash, now())"
+            ),
+            {"id": owner_id, "secret_hash": "4" * 64},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO cases "
+                "(id, owner_id, source_tier, original_a, original_b, observed_work, "
+                "deidentified_attestation, created_at, updated_at) VALUES "
+                "(:id, :owner_id, 'educator_authored', -3, 5, 'historical fixture', "
+                "false, now(), now())"
+            ),
+            {"id": case_id, "owner_id": owner_id},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO workflows "
+                "(id, case_id, owner_id, thread_id, state, version, schema_version, "
+                "registry_version, prompt_version, compiler_version, model_snapshot, "
+                "model_response_id, model_request_id, created_at, updated_at) VALUES "
+                "(:id, :case_id, :owner_id, :thread_id, 'ABSTAINED', 1, 'workflow.v1', "
+                "'rule_registry.v1', 'analysis_prompt.v2', 'counterexample_compiler.v1', "
+                "'gpt-5.6-terra', 'resp_workflow_historical', 'req_discarded_on_downgrade', "
+                "now(), now())"
+            ),
+            {
+                "id": workflow_id,
+                "case_id": case_id,
+                "owner_id": owner_id,
+                "thread_id": thread_id,
+            },
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO model_calls "
+                "(id, case_id, workflow_id, model_id, model_snapshot, requested_model_id, "
+                "returned_model_id, response_id, request_id, attempt_ordinal, purpose, "
+                "repair, client_request_id, status, latency_ms, input_tokens, output_tokens, "
+                "reasoning_tokens, cached_input_tokens, cache_write_input_tokens, cost_usd, "
+                "prompt_hash, route_version, prompt_cache_key, finalized_at, created_at) "
+                "VALUES (:id, :case_id, :workflow_id, 'gpt-5.6-terra', 'gpt-5.6-terra', "
+                "'gpt-5.6-terra', 'gpt-5.6-terra', 'resp_call_historical', "
+                "'req_discarded_on_downgrade', 1, 'terra', false, 'client-historical', "
+                "'completed', 1, 1, 1, 0, 0, 0, 0.000001, :prompt_hash, "
+                "'model_route.v1', 'prompt-cache', now(), now())"
+            ),
+            {
+                "id": call_id,
+                "case_id": case_id,
+                "workflow_id": workflow_id,
+                "prompt_hash": "5" * 64,
+            },
+        )
+
+    await db_engine.dispose()
+    command.downgrade(alembic_config, "c5d7e9f1a204")
+    try:
+        async with db_engine.connect() as connection:
+            legacy_workflow = (
+                await connection.execute(
+                    text("SELECT model_request_id FROM workflows WHERE id = :id"),
+                    {"id": workflow_id},
+                )
+            ).one()
+            legacy_call = (
+                await connection.execute(
+                    text("SELECT request_id FROM model_calls WHERE id = :id"),
+                    {"id": call_id},
+                )
+            ).one()
+        assert legacy_workflow.model_request_id == "resp_workflow_historical"
+        assert legacy_call.request_id == "resp_call_historical"
+
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.connect() as connection:
+            corrected_workflow = (
+                await connection.execute(
+                    text(
+                        "SELECT model_response_id, model_request_id "
+                        "FROM workflows WHERE id = :id"
+                    ),
+                    {"id": workflow_id},
+                )
+            ).one()
+            corrected_call = (
+                await connection.execute(
+                    text("SELECT response_id, request_id FROM model_calls WHERE id = :id"),
+                    {"id": call_id},
+                )
+            ).one()
+        assert corrected_workflow.model_response_id == "resp_workflow_historical"
+        assert corrected_workflow.model_request_id is None
+        assert corrected_call.response_id == "resp_call_historical"
+        assert corrected_call.request_id is None
+    finally:
+        await db_engine.dispose()
+        command.upgrade(alembic_config, "head")
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text("DELETE FROM owners WHERE id = :id"),
+                {"id": owner_id},
+            )
 
 
 @pytest.mark.postgres

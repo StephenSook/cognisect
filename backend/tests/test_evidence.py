@@ -13,6 +13,8 @@ from pydantic import ValidationError
 from cognisect.compiler import (
     CompiledProbe,
     CompilerAbstention,
+    CompilerCandidateProof,
+    CompilerSearchProof,
     ProbeHypothesis,
     SignedProblem,
     compile_accepted_probe,
@@ -57,6 +59,28 @@ def _probe(*predictions: int, correct_prediction: int = 10) -> CompiledProbe:
             for index, prediction in enumerate(predictions)
         ),
         specification_hash="a" * 64,
+        proof=CompilerSearchProof(
+            domain_problem_count=625,
+            eligible_candidate_count=624,
+            separating_candidate_count=1,
+            chosen_candidate_rank=1,
+            top_candidates=(
+                CompilerCandidateProof(
+                    problem=SignedProblem(3, -7),
+                    predictions=predictions,
+                    distinct_output_count=len(set(predictions)),
+                    top_two_separated=predictions[0] != predictions[1],
+                    distinguished_pair_count=sum(
+                        left != right
+                        for index, left in enumerate(predictions)
+                        for right in predictions[index + 1 :]
+                    ),
+                    operand_magnitude=10,
+                    correct_result_magnitude=10,
+                    rank=1,
+                ),
+            ),
+        ),
     )
 
 

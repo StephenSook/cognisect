@@ -17,6 +17,8 @@
             "type": "array"
           },
           "rank": {
+            "maximum": 4.0,
+            "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
           },
@@ -25,6 +27,9 @@
             "type": "string"
           },
           "truth_table_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Truth Table Hash",
             "type": "string"
           }
@@ -165,11 +170,17 @@
           "problem": {
             "$ref": "#/components/schemas/SignedProblemDTO"
           },
+          "proof": {
+            "$ref": "#/components/schemas/CompilerSearchProof"
+          },
           "registry_version": {
             "title": "Registry Version",
             "type": "string"
           },
           "specification_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "title": "Specification Hash",
             "type": "string"
           }
@@ -181,9 +192,116 @@
           "specification_hash",
           "registry_version",
           "compiler_version",
-          "predictions"
+          "predictions",
+          "proof"
         ],
         "title": "CompiledProbeResponse",
+        "type": "object"
+      },
+      "CompilerCandidateProof": {
+        "additionalProperties": false,
+        "description": "One ranked separating candidate exposed to the authorized teacher.",
+        "properties": {
+          "correct_result_magnitude": {
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Correct Result Magnitude",
+            "type": "integer"
+          },
+          "distinct_output_count": {
+            "minimum": 2.0,
+            "title": "Distinct Output Count",
+            "type": "integer"
+          },
+          "distinguished_pair_count": {
+            "minimum": 1.0,
+            "title": "Distinguished Pair Count",
+            "type": "integer"
+          },
+          "operand_magnitude": {
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Operand Magnitude",
+            "type": "integer"
+          },
+          "predictions": {
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "title": "Predictions",
+            "type": "array"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "rank": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "top_two_separated": {
+            "title": "Top Two Separated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "problem",
+          "predictions",
+          "distinct_output_count",
+          "top_two_separated",
+          "distinguished_pair_count",
+          "operand_magnitude",
+          "correct_result_magnitude",
+          "rank"
+        ],
+        "title": "CompilerCandidateProof",
+        "type": "object"
+      },
+      "CompilerSearchProof": {
+        "additionalProperties": false,
+        "description": "Complete bounded-domain counts and up to five deterministic finalists.",
+        "properties": {
+          "chosen_candidate_rank": {
+            "const": 1,
+            "title": "Chosen Candidate Rank",
+            "type": "integer"
+          },
+          "domain_problem_count": {
+            "const": 625,
+            "title": "Domain Problem Count",
+            "type": "integer"
+          },
+          "eligible_candidate_count": {
+            "const": 624,
+            "title": "Eligible Candidate Count",
+            "type": "integer"
+          },
+          "separating_candidate_count": {
+            "maximum": 624.0,
+            "minimum": 1.0,
+            "title": "Separating Candidate Count",
+            "type": "integer"
+          },
+          "top_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CompilerCandidateProof"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Top Candidates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "domain_problem_count",
+          "eligible_candidate_count",
+          "separating_candidate_count",
+          "chosen_candidate_rank",
+          "top_candidates"
+        ],
+        "title": "CompilerSearchProof",
         "type": "object"
       },
       "CreateCaseRequest": {
@@ -203,6 +321,20 @@
           },
           "problem": {
             "$ref": "#/components/schemas/SignedProblemDTO"
+          },
+          "provenance_record_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Record Id"
           },
           "source_tier": {
             "enum": [
@@ -245,6 +377,258 @@
           "workflow_id"
         ],
         "title": "CreateCaseResponse",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "description": "Strict JSON envelope for public string-detail failures.",
+        "properties": {
+          "detail": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "EvidenceReceiptHypothesis": {
+        "additionalProperties": false,
+        "description": "One prose-free closed-registry hypothesis proof.",
+        "properties": {
+          "rank": {
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          },
+          "truth_table_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Truth Table Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "rank",
+          "truth_table_hash"
+        ],
+        "title": "EvidenceReceiptHypothesis",
+        "type": "object"
+      },
+      "EvidenceReceiptResponse": {
+        "additionalProperties": false,
+        "description": "Owner-authorized receipt with a canonical payload hash.",
+        "properties": {
+          "accepted_hypotheses": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReceiptHypothesis"
+            },
+            "title": "Accepted Hypotheses",
+            "type": "array"
+          },
+          "audit_events": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEventResponse"
+            },
+            "title": "Audit Events",
+            "type": "array"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "compiled_probe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompiledProbeResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compiler_version": {
+            "title": "Compiler Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deterministic_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceStatusResponse"
+            },
+            "title": "Deterministic Evidence",
+            "type": "array"
+          },
+          "model_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Request Id"
+          },
+          "model_response_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Response Id"
+          },
+          "model_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Snapshot"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provenance_record_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Record Id"
+          },
+          "receipt_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Receipt Hash",
+            "type": "string"
+          },
+          "receipt_version": {
+            "const": "evidence_receipt.v1",
+            "default": "evidence_receipt.v1",
+            "title": "Receipt Version",
+            "type": "string"
+          },
+          "registry_version": {
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "review_decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "approved",
+                  "edited",
+                  "rejected",
+                  "abstained"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Decision"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_tier": {
+            "enum": [
+              "authentic",
+              "synthetic",
+              "mixed",
+              "published_exemplar",
+              "educator_authored",
+              "custom"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "case_id",
+          "source_tier",
+          "provenance_record_id",
+          "state",
+          "schema_version",
+          "registry_version",
+          "prompt_version",
+          "compiler_version",
+          "model_snapshot",
+          "model_response_id",
+          "model_request_id",
+          "created_at",
+          "updated_at",
+          "workflow_version",
+          "accepted_hypotheses",
+          "compiled_probe",
+          "deterministic_evidence",
+          "review_decision",
+          "reviewed_at",
+          "audit_events",
+          "receipt_hash"
+        ],
+        "title": "EvidenceReceiptResponse",
         "type": "object"
       },
       "EvidenceStatusResponse": {
@@ -462,6 +846,8 @@
             "type": "integer"
           },
           "rank": {
+            "maximum": 4.0,
+            "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
           },
@@ -661,6 +1047,11 @@
             "title": "Schema Version",
             "type": "string"
           },
+          "source_revision": {
+            "pattern": "^(?:development|[0-9a-f]{40})$",
+            "title": "Source Revision",
+            "type": "string"
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -670,7 +1061,8 @@
           "version",
           "schema_version",
           "registry_version",
-          "compiler_version"
+          "compiler_version",
+          "source_revision"
         ],
         "title": "VersionResponse",
         "type": "object"
@@ -679,6 +1071,23 @@
         "additionalProperties": false,
         "description": "Teacher-facing workflow snapshot with reproducibility metadata.",
         "properties": {
+          "abstention_origin": {
+            "anyOf": [
+              {
+                "enum": [
+                  "analysis",
+                  "teacher_probe",
+                  "learner_response",
+                  "teacher_review"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Origin"
+          },
           "accepted_hypotheses": {
             "items": {
               "$ref": "#/components/schemas/AcceptedHypothesisResponse"
@@ -739,6 +1148,17 @@
             ],
             "title": "Generated Proposal"
           },
+          "learner_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Rationale"
+          },
           "learner_response_url": {
             "anyOf": [
               {
@@ -761,6 +1181,17 @@
             ],
             "title": "Model Request Id"
           },
+          "model_response_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Response Id"
+          },
           "model_snapshot": {
             "anyOf": [
               {
@@ -775,6 +1206,17 @@
           "prompt_version": {
             "title": "Prompt Version",
             "type": "string"
+          },
+          "provenance_record_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Record Id"
           },
           "registry_version": {
             "title": "Registry Version",
@@ -829,20 +1271,24 @@
           "workflow_id",
           "case_id",
           "source_tier",
+          "provenance_record_id",
           "state",
           "schema_version",
           "registry_version",
           "prompt_version",
           "compiler_version",
           "model_snapshot",
+          "model_response_id",
           "model_request_id",
           "learner_response_url",
+          "abstention_origin",
           "created_at",
           "updated_at",
           "version",
           "accepted_hypotheses",
           "compiled_probe",
           "deterministic_evidence",
+          "learner_rationale",
           "review_result"
         ],
         "title": "WorkflowResponse",
@@ -876,6 +1322,38 @@
           }
         },
         "summary": "Health Route"
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "ready_route_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Ready Route Ready Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not ready"
+          }
+        },
+        "summary": "Ready Route"
       }
     },
     "/v1/cases": {
@@ -932,6 +1410,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid proxy identity"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -951,6 +1439,25 @@
               }
             },
             "description": "Owner session initialized before educational mutation"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Fixed-window request quota exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the current quota window expires",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Create Case Route"
@@ -1029,6 +1536,25 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Fixed-window request quota exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the current quota window expires",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Analyze Case Route"
@@ -1379,6 +1905,62 @@
           }
         },
         "summary": "Approve Probe Route"
+      }
+    },
+    "/v1/workflows/{workflow_id}/receipt": {
+      "get": {
+        "operationId": "receipt_route_v1_workflows__workflow_id__receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cognisect_owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cognisect Owner"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceReceiptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Receipt Route"
       }
     },
     "/v1/workflows/{workflow_id}/review": {

@@ -7,11 +7,13 @@ import os
 import subprocess
 import sys
 from dataclasses import replace
+from inspect import Parameter, signature
 from typing import cast
 
 from hypothesis import given
 from hypothesis import strategies as st
 
+import cognisect.compiler as compiler_module
 from cognisect.compiler import (
     CompiledProbe,
     CompilerAbstention,
@@ -87,6 +89,34 @@ def _independent_best_probe(
             )
             ranked.append((rank_key, (a, b)))
     return min(ranked)[1]
+
+
+def _independent_separating_candidates(
+    template_ids: tuple[TemplateId, ...], original: tuple[int, int]
+) -> list[tuple[tuple[int, int, int, int, int, int, int], tuple[int, int], tuple[int, ...]]]:
+    oracle_ids = tuple(cast("OracleTemplateId", item) for item in template_ids)
+    ranked = []
+    for a in DOMAIN_VALUES:
+        for b in DOMAIN_VALUES:
+            if (a, b) == original:
+                continue
+            predictions = tuple(oracle_result(item, a, b) for item in oracle_ids)
+            if len(set(predictions)) < 2:
+                continue
+            distinguished_pairs = sum(
+                left != right for left, right in itertools.combinations(predictions, 2)
+            )
+            rank_key = (
+                -len(set(predictions)),
+                -int(predictions[0] != predictions[1]),
+                -distinguished_pairs,
+                abs(a) + abs(b),
+                abs(a - b),
+                a,
+                b,
+            )
+            ranked.append((rank_key, (a, b), predictions))
+    return sorted(ranked)
 
 
 def _ranking_fixture(
@@ -232,6 +262,100 @@ def test_compiled_probe_contains_complete_versioned_specification() -> None:
     assert all(type(item.prediction) is int for item in result.hypotheses)
     assert len(result.specification_hash) == 64
     assert reproduce_probe_hash(result) == result.specification_hash
+
+
+def test_compiler_exposes_complete_proof_from_the_selection_ranking_pass() -> None:
+    template_ids: tuple[TemplateId, ...] = (
+        "ignore_subtrahend_sign",
+        "add_subtrahend",
+        "absolute_difference",
+        "negative_magnitude_sum",
+    )
+    original = (-1, 1)
+    independent = _independent_separating_candidates(template_ids, original)
+
+    result = compile_probe(_mapping(template_ids), *original)
+
+    assert isinstance(result, CompiledProbe)
+    assert result.proof.domain_problem_count == 625
+    assert result.proof.eligible_candidate_count == 624
+    assert result.proof.separating_candidate_count == len(independent)
+    assert result.proof.chosen_candidate_rank == 1
+    assert 1 <= len(result.proof.top_candidates) <= 5
+    assert [candidate.rank for candidate in result.proof.top_candidates] == list(
+        range(1, len(result.proof.top_candidates) + 1)
+    )
+    chosen = result.proof.top_candidates[0]
+    assert chosen.problem == result.chosen_problem
+    assert chosen.predictions == tuple(item.prediction for item in result.hypotheses)
+    assert chosen.distinct_output_count == len(set(chosen.predictions))
+    assert chosen.top_two_separated is (chosen.predictions[0] != chosen.predictions[1])
+    assert chosen.distinguished_pair_count == sum(
+        left != right for left, right in itertools.combinations(chosen.predictions, 2)
+    )
+    assert chosen.operand_magnitude == abs(chosen.problem.a) + abs(chosen.problem.b)
+    assert chosen.correct_result_magnitude == abs(chosen.problem.a - chosen.problem.b)
+    assert [
+        (
+            candidate.problem,
+            candidate.predictions,
+            candidate.distinct_output_count,
+            candidate.top_two_separated,
+            candidate.distinguished_pair_count,
+            candidate.operand_magnitude,
+            candidate.correct_result_magnitude,
+            candidate.rank,
+        )
+        for candidate in result.proof.top_candidates
+    ] == [
+        (
+            compiler_module.SignedProblem(a=problem[0], b=problem[1]),
+            predictions,
+            -rank_key[0],
+            bool(-rank_key[1]),
+            -rank_key[2],
+            rank_key[3],
+            rank_key[4],
+            rank,
+        )
+        for rank, (rank_key, problem, predictions) in enumerate(independent[:5], start=1)
+    ]
+
+
+def test_compiler_reuses_ranking_pass_predictions_for_compiled_hypotheses(
+    monkeypatch,
+) -> None:
+    prediction_calls = 0
+    real_prediction = compiler_module._prediction
+
+    def counting_prediction(hypothesis, a, b):
+        nonlocal prediction_calls
+        prediction_calls += 1
+        return real_prediction(hypothesis, a, b)
+
+    monkeypatch.setattr(compiler_module, "_prediction", counting_prediction)
+
+    result = compile_probe(
+        _mapping(
+            (
+                "ignore_subtrahend_sign",
+                "add_subtrahend",
+                "absolute_difference",
+                "negative_magnitude_sum",
+            )
+        ),
+        -1,
+        1,
+    )
+
+    assert isinstance(result, CompiledProbe)
+    assert prediction_calls == (
+        result.proof.eligible_candidate_count * len(result.hypotheses)
+    )
+
+
+def test_compiled_probe_requires_a_search_proof() -> None:
+    assert signature(CompiledProbe).parameters["proof"].default is Parameter.empty
 
 
 @given(

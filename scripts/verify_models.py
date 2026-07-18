@@ -16,7 +16,7 @@ from typing import Annotated, Literal
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
-from cognisect.model_policy import MODEL_IDS
+from cognisect.model_policy import MODEL_IDS, provider_telemetry_identity_is_valid
 
 VERIFIER_TIMEOUT_SECONDS = 30.0
 
@@ -28,11 +28,6 @@ class VerificationOutput(BaseModel):
 
     verified: Literal[True]
     sequence: Annotated[int, Field(strict=True, ge=1, le=3)]
-
-
-def _returned_model_is_allowed(requested: str, returned: str) -> bool:
-    """Allow the exact configured model or its dated provider snapshot."""
-    return returned == requested or returned.startswith(f"{requested}-")
 
 
 async def _verify(api_key: str) -> list[dict[str, object]]:
@@ -58,11 +53,27 @@ async def _verify(api_key: str) -> list[dict[str, object]]:
                     metadata={"purpose": "explicit_live_verification"},
                 )
                 parsed = response.output_parsed
+                returned_model = getattr(response, "model", None)
+                response_id = getattr(response, "id", None)
+                request_id_value = getattr(response, "_request_id", None)
+                request_id = (
+                    request_id_value
+                    if isinstance(request_id_value, str) and request_id_value
+                    else None
+                )
                 valid = (
                     isinstance(parsed, VerificationOutput)
                     and parsed.verified is True
                     and parsed.sequence == sequence
-                    and _returned_model_is_allowed(model_id, str(response.model))
+                    and provider_telemetry_identity_is_valid(
+                        expected_requested_model_id=model_id,
+                        reported_requested_model_id=model_id,
+                        returned_model_id=(
+                            returned_model if isinstance(returned_model, str) else None
+                        ),
+                        response_id=response_id if isinstance(response_id, str) else None,
+                        request_id=request_id_value,
+                    )
                 )
                 if not valid:
                     msg = "live verification result was invalid"
@@ -70,8 +81,9 @@ async def _verify(api_key: str) -> list[dict[str, object]]:
                 calls.append(
                     {
                         "requested_model_id": model_id,
-                        "returned_model_id": response.model,
-                        "request_id": response.id,
+                        "returned_model_id": returned_model,
+                        "response_id": response_id,
+                        "request_id": request_id,
                         "sequence": sequence,
                         "structured_output_valid": True,
                     }

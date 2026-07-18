@@ -15,17 +15,19 @@ The machine-readable sources are `data/security/security-audit.v1.json` and
 
 ### Authentication and authorization — pass
 
-- `backend/src/cognisect/api.py:67` validates the owner capability shape and
+- `backend/src/cognisect/api.py:108` validates the owner capability shape and
   returns the same non-enumerating 404 for missing or invalid authority.
-- `backend/src/cognisect/api.py:260` bootstraps before educational mutation and
+- `backend/src/cognisect/api.py:367-374` consumes the public quota before owner
+  bootstrap, and lines 375-391 bootstrap before educational mutation and
   sets a Secure, HttpOnly, SameSite=Lax production cookie.
-- `backend/src/cognisect/services.py:276` looks up only a purpose-hashed owner
+- `backend/src/cognisect/services.py:396` looks up only a purpose-hashed owner
   capability. `backend/src/cognisect/repositories.py` scopes workflow access by
   owner before any read or transition.
-- `backend/src/cognisect/services.py:897` derives a separate learner capability,
-  persists only its hash, and uses a row lock for submission.
-- `frontend/src/lib/backend-proxy.ts:132` never forwards a teacher owner cookie to
-  a learner response path.
+- `backend/src/cognisect/services.py:1023` derives a separate learner capability,
+  lines 1027-1036 persist only its hash, and lines 1076-1077 apply the submission
+  row lock.
+- `frontend/src/lib/backend-proxy.ts:168` reads the teacher cookie, and line 174
+  excludes it from every learner response path.
 
 The owner/learner/cross-owner matrix, missing-authority equivalence, expiration,
 GET non-consumption, replay, stale version, and deletion tests passed.
@@ -72,9 +74,29 @@ and constant-time comparison. `backend/src/cognisect/safe_logging.py` allowlists
 only event name, method, route template, status, state, model ID, request ID,
 latency, and token/cost metadata. Uvicorn access logging is disabled in production.
 
-The repository hygiene scanner passed. npm audit and pip-audit each reported zero
-known vulnerabilities for the installed locked release dependencies. A zero result
-means no advisory match at audit time, not proof that every dependency is safe.
+The repository hygiene scanner passed. On 2026-07-17, npm audit and pip-audit each
+reported zero known vulnerabilities for the installed locked dependency graphs. A
+zero result means no advisory match at audit time, not proof that every dependency
+is safe.
+
+Public case creation uses a Postgres fixed-window quota. At Vercel, the platform
+client address is immediately converted into a domain-separated HMAC bucket; the
+raw address is not forwarded to the backend. A distinct shared proxy secret signs
+the bucket together with a short timestamp, method, and path. The backend verifies
+that signature in constant time and rejects partial, invalid, or stale proxy
+identity before quota or owner mutation. Direct backend requests with no signed
+identity fall back to the socket host in a separate key-material domain. The quota
+is consumed before backend owner bootstrap, so 428 attempts are bounded.
+
+Analysis first authorizes the owner capability, then consumes a separate quota.
+Rotating syntactically valid but unauthorized capabilities therefore create no
+limiter rows. Only the scope, twice-HMACed bucket, UTC window timestamps, and
+counter persist; raw client hosts, proxy buckets, and owner capabilities are never
+written to the limiter table. `ABUSE_KEY_PEPPER`, `PROXY_SIGNING_SECRET`, and both
+capability peppers must be mutually distinct. Atomic `INSERT ... ON CONFLICT`
+consumption makes the configured limit exact across API processes. A rejected
+request returns only `{"detail":"rate limit exceeded"}` and a numeric
+`Retry-After` header.
 
 ## Production stress evidence
 
@@ -103,20 +125,37 @@ uv run pytest backend/tests -q
 uv run python scripts/check_public_repo.py
 uv run python scripts/run_production_stress.py --check
 uv run alembic check
-uv run --with pip-audit pip-audit --local --skip-editable
-npm audit --audit-level=high
+uv export --frozen --no-hashes --no-dev --no-emit-project | uvx --python 3.12 pip-audit -r /dev/stdin
+npm audit --audit-level=high --prefix frontend
+npm audit --audit-level=high --prefix frontend/tools/openapi-generator
+uv run python scripts/generate_dependency_licenses.py --check
+cd frontend && npm ci && npm ci --prefix tools/openapi-generator && npm run check:peers
 npm run test:e2e
 ```
 
+CI enforces the frozen production Python audit, both exact npm lockfile audits,
+full npm peer-tree validity, and generated license-inventory drift. These checks
+are bounded to the resolved graphs and advisory data available when they run.
+
 ## Data lifecycle and residual limits
 
-Default application retention is 30 days and configurable to 365. Owner-authorized
-deletion removes workflow educational content and checkpoints; a content-free HMAC
-tombstone prevents an old idempotency command from recreating it.
+Default application retention is 30 days and configurable to 365. In production,
+the application attaches the graph runtime first, then runs retention immediately
+and every 21,600 seconds. Each iteration removes expired educational content and
+checkpoints plus expired limiter buckets. Limiter cleanup uses an expiry-leading
+index and drains bounded `FOR UPDATE SKIP LOCKED` batches in short transactions.
+Iteration failures are logged without stopping the API and are retried at the
+next interval. Owner-authorized deletion
+removes workflow educational content and checkpoints; a content-free HMAC tombstone
+prevents an old idempotency command from recreating it.
 
-The free preview has no documented distributed application rate limiter. Bounded
-payloads, strict schemas, one-response capabilities, provider timeouts, three-call
-model limits, and a cost circuit breaker reduce abuse impact but do not replace a
-production edge rate limiter. Free-tier backups, high availability, alerting, and
-long-term availability are not production-grade guarantees. Provider access and
-retention settings should be re-audited before any real educational deployment.
+The fixed-window limiter is a database-backed abuse bound, not authentication or a
+substitute for an edge DDoS service. A shared NAT can aggregate unrelated teachers,
+and correctness depends on Vercel supplying the intended platform-owned client
+header and Render accepting only the authenticated derived bucket. Rotating
+`ABUSE_KEY_PEPPER` starts new logical buckets; rotating the proxy secret requires
+an atomic frontend/backend configuration update. Application purge
+does not erase provider logs or backups. Free-tier backups, high availability,
+alerting, and long-term availability are not production-grade guarantees. Provider
+access, proxy topology, quotas, and retention should be re-audited before any real
+educational deployment.

@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
-import { E2E_APP_URL } from "../../e2e-settings";
+import { E2E_APP_URL, E2E_BACKEND_URL } from "../../e2e-settings";
 
 function captureBrowserFailures(page: Page, failures: string[]) {
   page.on("console", (message) => {
@@ -20,6 +20,62 @@ function consumeExpectedFailure(failures: string[], message: string) {
   failures.splice(index, 1);
 }
 
+async function expectTeacherShell(page: Page) {
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Lab" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Runtime evidence" })).toBeVisible();
+  await expect(page.getByText("Signed integers · registry v1")).toHaveCount(1);
+  await expect(page.locator(".site-footer")).toContainText(
+    "Teacher-controlled evidence · no cognitive-state claims",
+  );
+}
+
+async function expectIsolatedLearnerShell(page: Page) {
+  await expect(page.locator("main")).toHaveCount(1);
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toHaveCount(0);
+  await expect(page.getByText("Lab", { exact: true })).toHaveCount(0);
+  await expect(page.locator("a")).toHaveCount(0);
+  await expect(page.locator(".site-header, .site-footer")).toHaveCount(0);
+
+  const learnerSurface = (await page.locator("body").innerText()).toLowerCase();
+  for (const forbidden of [
+    "runtime evidence",
+    "signed integers · registry v1",
+    "teacher-controlled evidence",
+    "hypothesis",
+    "correct answer",
+    "telemetry",
+    "model identifier",
+    "model request",
+    "model response",
+    "owner link",
+    "open teacher report",
+    "report action",
+    "live evidence tour",
+  ]) {
+    expect(learnerSurface).not.toContain(forbidden);
+  }
+}
+
+async function expectNeutralNotFoundBoundary(page: Page) {
+  await expect(page.getByRole("main")).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Resource not found" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toHaveCount(0);
+  await expect(page.locator(".site-header, .site-footer, a")).toHaveCount(0);
+
+  const surface = (await page.locator("body").innerText()).toLowerCase();
+  for (const forbidden of [
+    "teacher lab",
+    "runtime evidence",
+    "signed integers · registry v1",
+    "teacher-controlled evidence",
+  ]) {
+    expect(surface).not.toContain(forbidden);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+}
+
 test("landing reflows at 200 percent equivalent with reduced motion", async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 720, height: 450 },
@@ -27,15 +83,20 @@ test("landing reflows at 200 percent equivalent with reduced motion", async ({ b
   });
   const page = await context.newPage();
   await page.goto("/");
+  await expectTeacherShell(page);
 
-  await expect(page.getByRole("heading", { name: "Counterexamples for teacher review" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open the teacher lab" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /625 problems\.\s*One teacher-controlled probe\./ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Run the live evidence tour" })).toBeVisible();
+  await expect(page.getByText(/leave 624 eligible follow-ups/)).toBeVisible();
+  const topologySummary = page.getByText("Open evidence table");
+  await expect(topologySummary).toBeVisible();
+  await topologySummary.click();
   await expect(page.getByRole("table", { name: "Worked compiler example table" })).toBeVisible();
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /width=device-width/);
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", "COGNISECT");
-  await page.getByRole("link", { name: "Open the teacher lab" }).focus();
+  await page.getByRole("link", { name: "Run the live evidence tour" }).focus();
   expect(
-    await page.getByRole("link", { name: "Open the teacher lab" }).evaluate(
+    await page.getByRole("link", { name: "Run the live evidence tour" }).evaluate(
       (element) => getComputedStyle(element).outlineColor,
     ),
   ).toBe("rgb(255, 200, 120)");
@@ -48,6 +109,10 @@ test("landing reflows at 200 percent equivalent with reduced motion", async ({ b
     (element) => Number.parseFloat(getComputedStyle(element).animationDuration),
   );
   expect(traceAnimationSeconds).toBeLessThanOrEqual(0.001);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.setViewportSize({ width: 320, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
   await context.close();
@@ -84,13 +149,109 @@ test("keyboard-only entry exposes honest slow-network timeout state", async ({ p
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
+test("root not-found boundary stays neutral across generic and malformed learner paths", async ({ page }) => {
+  for (const path of ["/does-not-exist", "/respond/not/a-token"]) {
+    const response = await page.goto(path);
+    expect(response?.status()).toBe(404);
+    await expectNeutralNotFoundBoundary(page);
+
+    await page.setViewportSize({ width: 320, height: 800 });
+    await expectNeutralNotFoundBoundary(page);
+  }
+
+  const canonicalLearnerResponse = await page.request.get("/respond/not-a-real-token");
+  expect(canonicalLearnerResponse.status()).toBe(200);
+  expect((await canonicalLearnerResponse.text()).toLowerCase()).not.toContain(
+    "return to the teacher lab",
+  );
+});
+
+test("unowned teacher resources keep one top-level main landmark", async ({ page }) => {
+  const unownedId = "00000000-0000-0000-0000-000000000000";
+  for (const path of [`/case/${unownedId}`, `/report/${unownedId}`]) {
+    await page.goto(path);
+    await expect(page.getByRole("navigation", { name: "Primary navigation" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Lab" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Resource not found" })).toBeVisible();
+    await expect(page.getByText("The resource is unavailable or is not owned by this browser.")).toBeVisible();
+    await expect(page.locator("main")).toHaveCount(1);
+    await expect(page.locator("main main")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
+});
+
+test("slow upstream reads show audience-scoped pending shells", async ({ page, browser }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.setExtraHTTPHeaders({
+    "x-vercel-forwarded-for": testInfo.project.name === "desktop"
+      ? "203.0.113.30"
+      : "203.0.113.31",
+  });
+  await page.goto("/lab");
+  await page.getByRole("button", { name: "Create and analyze" }).click();
+  await expect(page.locator(".form-alert")).toHaveText(
+    "The private owner session is ready. Retry sends the exact locked command.",
+  );
+  await page.getByRole("button", { name: "Retry exact command" }).click();
+  await expect(page).toHaveURL(/\/case\/[0-9a-f-]+$/, { timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Approve probe" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve probe" }).click();
+  const learnerLink = await page.getByLabel("Learner response link").inputValue();
+  const workflowId = new URL(page.url()).pathname.split("/").at(-1)!;
+
+  const teacherDelay = await page.request.post(`${E2E_BACKEND_URL}/__e2e__/delay-next-read`, {
+    data: { path_prefix: `/v1/workflows/${workflowId}` },
+  });
+  expect(teacherDelay.status()).toBe(204);
+  const teacherStartedAt = Date.now();
+  const teacherNavigation = page.goto(`/case/${workflowId}`);
+  const teacherLoading = page
+    .locator('p[role="status"]:visible')
+    .filter({ hasText: "Loading current persisted state…" });
+  await expect(teacherLoading).toHaveText("Loading current persisted state…", { timeout: 1_500 });
+  expect(Date.now() - teacherStartedAt).toBeLessThan(1_500);
+  await expect(page.locator("main")).toHaveCount(1);
+  await expect(page.locator("main main")).toHaveCount(0);
+  await expectTeacherShell(page);
+  await teacherNavigation;
+  await expect(teacherLoading).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Compiled probe" })).toBeVisible();
+  await expect(page.locator("main")).toHaveCount(1);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  const learnerDelay = await page.request.post(`${E2E_BACKEND_URL}/__e2e__/delay-next-read`, {
+    data: { path_prefix: "/v1/respond/" },
+  });
+  expect(learnerDelay.status()).toBe(204);
+  const learnerContext = await browser.newContext({
+    viewport: testInfo.project.use.viewport ?? undefined,
+  });
+  const learnerPage = await learnerContext.newPage();
+  const learnerStartedAt = Date.now();
+  const learnerNavigation = learnerPage.goto(learnerLink);
+  const learnerLoading = learnerPage
+    .locator('p[role="status"]:visible')
+    .filter({ hasText: "Loading learner response…" });
+  await expect(learnerLoading).toHaveText("Loading learner response…", { timeout: 1_500 });
+  expect(Date.now() - learnerStartedAt).toBeLessThan(1_500);
+  await expectIsolatedLearnerShell(learnerPage);
+  await expect(learnerPage.locator("main main")).toHaveCount(0);
+  await learnerNavigation;
+  await expect(learnerLoading).toHaveCount(0);
+  await expect(learnerPage.getByRole("heading", { name: "Learner response" })).toBeVisible();
+  await expectIsolatedLearnerShell(learnerPage);
+  expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+  await learnerContext.close();
+});
+
 test("teacher to isolated learner to teacher report", async ({ page, browser }, testInfo) => {
   test.setTimeout(120_000);
   const browserFailures: string[] = [];
   captureBrowserFailures(page, browserFailures);
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Counterexamples for teacher review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /625 problems\.\s*One teacher-controlled probe\./ })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   expect(
     await page.evaluate(
@@ -98,17 +259,18 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
     ),
   ).toBe(true);
 
-  await page.getByRole("link", { name: "Open the teacher lab" }).click();
+  await page.getByRole("link", { name: "Run the live evidence tour" }).click();
+  await expectTeacherShell(page);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await expect(page.getByText(/default prefilled cognisect-ea-001 exemplar is real API input/i)).toBeVisible();
+  await expect(page.getByLabel("Case source")).toHaveValue("public_exemplar");
+  await expect(page.getByLabel("Public case")).toHaveValue("cognisect-ea-001");
   await page.getByLabel("First integer").focus();
   expect(
     await page.getByLabel("First integer").evaluate(
       (element) => getComputedStyle(element).outlineColor,
     ),
   ).toBe("rgb(10, 98, 94)");
-  await page.getByLabel("First integer").fill("-3");
-  await page.getByLabel("Second integer").fill("5");
-  await page.getByLabel("Observed work").fill("-3 - 5 = 2");
 
   await page.route("**/api/backend/v1/cases", async (route) => {
     await route.abort("failed");
@@ -119,25 +281,73 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   consumeExpectedFailure(browserFailures, "net::ERR_FAILED");
   await page.unroute("**/api/backend/v1/cases");
   await page.getByRole("button", { name: "Retry exact command" }).click();
+  await expect(page.locator(".form-alert")).toHaveText(
+    "The private owner session is ready. Retry sends the exact locked command.",
+  );
+  const ownerCookie = await page.context().cookies();
+  expect(
+    ownerCookie.find((cookie) => cookie.name === "cognisect_owner")?.value,
+  ).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  consumeExpectedFailure(browserFailures, "status of 428");
+  await page.getByRole("button", { name: "Retry exact command" }).click();
   await expect(page).toHaveURL(/\/case\/[0-9a-f-]+$/, { timeout: 20_000 });
+  await expectTeacherShell(page);
   await expect(page.getByRole("heading", { name: "Compiled probe" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Live evidence tour" }).getByText("First teacher gate")).toHaveAttribute("aria-current", "step");
+  await expect(page.getByText("625", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("624", { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId("chosen-probe-reveal")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  const compiledProbeBox = await page
-    .getByRole("region", { name: "Compiled probe" })
-    .boundingBox();
+  const chosenProbeBox = await page.getByTestId("chosen-probe-reveal").boundingBox();
   const decisionBox = await page
     .getByRole("region", { name: "Teacher probe decision" })
     .boundingBox();
-  expect(compiledProbeBox).not.toBeNull();
+  const finalistsBox = await page.getByText("Inspect persisted finalists").boundingBox();
+  expect(chosenProbeBox).not.toBeNull();
   expect(decisionBox).not.toBeNull();
-  expect(compiledProbeBox!.y + compiledProbeBox!.height).toBeLessThanOrEqual(
-    decisionBox!.y,
+  expect(finalistsBox).not.toBeNull();
+  expect(chosenProbeBox!.y + chosenProbeBox!.height).toBeLessThanOrEqual(decisionBox!.y);
+  expect(decisionBox!.y + decisionBox!.height).toBeLessThanOrEqual(finalistsBox!.y);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const proofAnimationSeconds = await page.locator(".proof-sequence li").first().evaluate(
+    (element) => Number.parseFloat(getComputedStyle(element).animationDuration),
   );
+  expect(proofAnimationSeconds).toBeLessThanOrEqual(0.001);
+  const journeyViewport = page.viewportSize();
+  await page.setViewportSize({ width: 320, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (journeyViewport !== null) await page.setViewportSize(journeyViewport);
+
+  const limitedResponse = await page.evaluate(async () => {
+    const response = await fetch("/api/backend/v1/cases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        source_tier: "custom",
+        problem: { a: -3, b: 5 },
+        observed_work: "-3 - 5 = 2",
+        deidentified_attestation: true,
+      }),
+    });
+    return {
+      status: response.status,
+      retryAfter: response.headers.get("retry-after"),
+      body: await response.json(),
+    };
+  });
+  expect(limitedResponse.status).toBe(429);
+  expect(limitedResponse.retryAfter).toMatch(/^\d+$/);
+  expect(limitedResponse.body).toEqual({ detail: "rate limit exceeded" });
+  consumeExpectedFailure(browserFailures, "status of 429");
 
   await page.getByRole("button", { name: "Approve probe" }).click();
   const firstLearnerLink = await page.getByLabel("Learner response link").inputValue();
@@ -161,10 +371,34 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   await expect(
     learnerPage.getByRole("heading", { level: 1, name: "Learner response" }),
   ).toBeVisible();
+  await expect(learnerPage).toHaveTitle("Learner response | COGNISECT");
+  await expectIsolatedLearnerShell(learnerPage);
   const problemText = await learnerPage.locator(".math-problem").textContent();
   const values = problemText?.match(/-?\d+/g)?.map(Number);
   expect(values).toHaveLength(2);
+  await learnerPage.keyboard.press("Tab");
+  await expect(learnerPage.getByLabel("Your signed integer")).toBeFocused();
+  expect(
+    await learnerPage.getByLabel("Your signed integer").evaluate(
+      (element) => getComputedStyle(element).outlineStyle,
+    ),
+  ).not.toBe("none");
+  await learnerPage.keyboard.press("Tab");
+  await expect(learnerPage.getByLabel("Rationale (optional)")).toBeFocused();
+  await learnerPage.keyboard.press("Tab");
+  await expect(learnerPage.getByRole("button", { name: "Submit response" })).toBeFocused();
+  expect(await learnerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+
+  const learnerViewport = learnerPage.viewportSize();
+  await learnerPage.emulateMedia({ reducedMotion: "reduce" });
+  await learnerPage.setViewportSize({ width: 720, height: 450 });
+  expect(await learnerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+  await learnerPage.setViewportSize({ width: 320, height: 800 });
+  expect(await learnerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+  if (learnerViewport !== null) await learnerPage.setViewportSize(learnerViewport);
 
   await learnerPage.route("**/api/backend/v1/respond/*", async (route) => {
     await route.fulfill({
@@ -204,20 +438,35 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
     timeout: 30_000,
   });
   await page.getByRole("link", { name: "Open teacher report" }).click();
+  await expectTeacherShell(page);
   await expect(page.getByRole("heading", { level: 1, name: "Teacher report" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deterministic evidence" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByLabel("Teacher note").fill("Teacher-reviewed deterministic evidence.");
   await page.getByRole("button", { name: "Save review" }).click();
   await expect(page.locator('[data-state="APPROVED"]')).toBeVisible();
-  await expect(page.getByText("approved", { exact: true })).toBeVisible();
+  const finalDecision = page.getByRole("region", { name: "Persisted final teacher decision" });
+  await expect(finalDecision).toContainText("approved");
+  await expect(finalDecision).toContainText("Teacher-reviewed deterministic evidence.");
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.reload();
-  await expect(page.getByText("approved", { exact: true })).toBeVisible();
+  const persistedDecision = page.getByRole("region", { name: "Persisted final teacher decision" });
+  await expect(persistedDecision).toContainText("approved");
+  await expect(persistedDecision).toContainText("Teacher-reviewed deterministic evidence.");
+  await expect(page.getByRole("heading", { name: "Evidence receipt" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Append-only workflow audit" })).toBeVisible();
+
+  const [receiptDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Download evidence receipt" }).click(),
+  ]);
+  expect(receiptDownload.suggestedFilename()).toBe(
+    `cognisect-evidence-${new URL(page.url()).pathname.split("/").at(-1)!}.json`,
+  );
 
   const workflowId = new URL(page.url()).pathname.split("/").at(-1)!;
   await page.goto(`/runtime?workflow_id=${workflowId}`);
+  await expectTeacherShell(page);
   await expect(page.getByText("deterministic-test-fixture")).toBeVisible();
   await expect(page.getByText("test-fixture-request")).toBeVisible();
   expect((await page.locator("body").textContent()) ?? "").not.toContain(learnerToken);
@@ -225,8 +474,14 @@ test("teacher to isolated learner to teacher report", async ({ page, browser }, 
   expect(browserFailures).toEqual([]);
 });
 
-test("teacher abstention and unavailable learner states stay explicit", async ({ page }) => {
+test("teacher abstention and unavailable learner states stay explicit", async ({ page }, testInfo) => {
+  await page.setExtraHTTPHeaders({
+    "x-vercel-forwarded-for": testInfo.project.name === "desktop"
+      ? "203.0.113.12"
+      : "203.0.113.13",
+  });
   await page.goto("/respond/not-a-real-token");
+  await expectIsolatedLearnerShell(page);
   await expect(page.getByRole("heading", { name: "Learner response unavailable" })).toBeVisible();
   await expect(page.locator('p[role="alert"]')).toHaveText(
     "This learner link is invalid or unavailable.",
@@ -234,10 +489,15 @@ test("teacher abstention and unavailable learner states stay explicit", async ({
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
   await page.goto("/lab");
+  await page.getByLabel("Case source").selectOption("educator_authored");
   await page.getByLabel("First integer").fill("-3");
   await page.getByLabel("Second integer").fill("5");
   await page.getByLabel("Observed work").fill("-3 - 5 = 2");
   await page.getByRole("button", { name: "Create and analyze" }).click();
+  await expect(page.locator(".form-alert")).toHaveText(
+    "The private owner session is ready. Retry sends the exact locked command.",
+  );
+  await page.getByRole("button", { name: "Retry exact command" }).click();
   await expect(page.getByRole("button", { name: "Decline probe" })).toBeVisible({
     timeout: 20_000,
   });

@@ -16,6 +16,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ready Route */
+        get: operations["ready_route_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/cases": {
         parameters: {
             query?: never;
@@ -114,6 +131,23 @@ export interface paths {
         put?: never;
         /** Approve Probe Route */
         post: operations["approve_probe_route_v1_workflows__workflow_id__probe_approval_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{workflow_id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Receipt Route */
+        get: operations["receipt_route_v1_workflows__workflow_id__receipt_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -248,10 +282,57 @@ export interface components {
             /** Predictions */
             predictions: components["schemas"]["ProbePredictionResponse"][];
             problem: components["schemas"]["SignedProblemDTO"];
+            proof: components["schemas"]["CompilerSearchProof"];
             /** Registry Version */
             registry_version: string;
             /** Specification Hash */
             specification_hash: string;
+        };
+        /**
+         * CompilerCandidateProof
+         * @description One ranked separating candidate exposed to the authorized teacher.
+         */
+        CompilerCandidateProof: {
+            /** Correct Result Magnitude */
+            correct_result_magnitude: number;
+            /** Distinct Output Count */
+            distinct_output_count: number;
+            /** Distinguished Pair Count */
+            distinguished_pair_count: number;
+            /** Operand Magnitude */
+            operand_magnitude: number;
+            /** Predictions */
+            predictions: number[];
+            problem: components["schemas"]["SignedProblemDTO"];
+            /** Rank */
+            rank: number;
+            /** Top Two Separated */
+            top_two_separated: boolean;
+        };
+        /**
+         * CompilerSearchProof
+         * @description Complete bounded-domain counts and up to five deterministic finalists.
+         */
+        CompilerSearchProof: {
+            /**
+             * Chosen Candidate Rank
+             * @constant
+             */
+            chosen_candidate_rank: 1;
+            /**
+             * Domain Problem Count
+             * @constant
+             */
+            domain_problem_count: 625;
+            /**
+             * Eligible Candidate Count
+             * @constant
+             */
+            eligible_candidate_count: 624;
+            /** Separating Candidate Count */
+            separating_candidate_count: number;
+            /** Top Candidates */
+            top_candidates: components["schemas"]["CompilerCandidateProof"][];
         };
         /**
          * CreateCaseRequest
@@ -266,6 +347,8 @@ export interface components {
             /** Observed Work */
             observed_work: string;
             problem: components["schemas"]["SignedProblemDTO"];
+            /** Provenance Record Id */
+            provenance_record_id?: string | null;
             /**
              * Source Tier
              * @enum {string}
@@ -287,6 +370,96 @@ export interface components {
              * Format: uuid
              */
             workflow_id: string;
+        };
+        /**
+         * ErrorResponse
+         * @description Strict JSON envelope for public string-detail failures.
+         */
+        ErrorResponse: {
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * EvidenceReceiptHypothesis
+         * @description One prose-free closed-registry hypothesis proof.
+         */
+        EvidenceReceiptHypothesis: {
+            /** Rank */
+            rank: number;
+            /** Template Id */
+            template_id: string;
+            /** Truth Table Hash */
+            truth_table_hash: string;
+        };
+        /**
+         * EvidenceReceiptResponse
+         * @description Owner-authorized receipt with a canonical payload hash.
+         */
+        EvidenceReceiptResponse: {
+            /** Accepted Hypotheses */
+            accepted_hypotheses: components["schemas"]["EvidenceReceiptHypothesis"][];
+            /** Audit Events */
+            audit_events: components["schemas"]["AuditEventResponse"][];
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            compiled_probe: components["schemas"]["CompiledProbeResponse"] | null;
+            /** Compiler Version */
+            compiler_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deterministic Evidence */
+            deterministic_evidence: components["schemas"]["EvidenceStatusResponse"][];
+            /** Model Request Id */
+            model_request_id: string | null;
+            /** Model Response Id */
+            model_response_id: string | null;
+            /** Model Snapshot */
+            model_snapshot: string | null;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Provenance Record Id */
+            provenance_record_id: string | null;
+            /** Receipt Hash */
+            receipt_hash: string;
+            /**
+             * Receipt Version
+             * @default evidence_receipt.v1
+             * @constant
+             */
+            receipt_version: "evidence_receipt.v1";
+            /** Registry Version */
+            registry_version: string;
+            /** Review Decision */
+            review_decision: ("approved" | "edited" | "rejected" | "abstained") | null;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Schema Version */
+            schema_version: string;
+            /**
+             * Source Tier
+             * @enum {string}
+             */
+            source_tier: "authentic" | "synthetic" | "mixed" | "published_exemplar" | "educator_authored" | "custom";
+            /** State */
+            state: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Workflow Id
+             * Format: uuid
+             */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: number;
         };
         /**
          * EvidenceStatusResponse
@@ -474,6 +647,8 @@ export interface components {
             registry_version: string;
             /** Schema Version */
             schema_version: string;
+            /** Source Revision */
+            source_revision: string;
             /** Version */
             version: string;
         };
@@ -482,6 +657,8 @@ export interface components {
          * @description Teacher-facing workflow snapshot with reproducibility metadata.
          */
         WorkflowResponse: {
+            /** Abstention Origin */
+            abstention_origin: ("analysis" | "teacher_probe" | "learner_response" | "teacher_review") | null;
             /** Accepted Hypotheses */
             accepted_hypotheses: components["schemas"]["AcceptedHypothesisResponse"][];
             /**
@@ -503,14 +680,20 @@ export interface components {
             edited_text?: string | null;
             /** Generated Proposal */
             generated_proposal?: string | null;
+            /** Learner Rationale */
+            learner_rationale: string | null;
             /** Learner Response Url */
             learner_response_url: string | null;
             /** Model Request Id */
             model_request_id: string | null;
+            /** Model Response Id */
+            model_response_id: string | null;
             /** Model Snapshot */
             model_snapshot: string | null;
             /** Prompt Version */
             prompt_version: string;
+            /** Provenance Record Id */
+            provenance_record_id: string | null;
             /** Registry Version */
             registry_version: string;
             review_result: components["schemas"]["ReviewResultResponse"] | null;
@@ -567,6 +750,37 @@ export interface operations {
             };
         };
     };
+    ready_route_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Not ready */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     create_case_route_v1_cases_post: {
         parameters: {
             query?: never;
@@ -593,6 +807,15 @@ export interface operations {
                     "application/json": components["schemas"]["CreateCaseResponse"];
                 };
             };
+            /** @description Invalid proxy identity */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -609,6 +832,17 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OwnerBootstrapResponse"];
+                };
+            };
+            /** @description Fixed-window request quota exceeded */
+            429: {
+                headers: {
+                    /** @description Seconds until the current quota window expires */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -648,6 +882,17 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Fixed-window request quota exceeded */
+            429: {
+                headers: {
+                    /** @description Seconds until the current quota window expires */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -845,6 +1090,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LearnerTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receipt_route_v1_workflows__workflow_id__receipt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: {
+                cognisect_owner?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceReceiptResponse"];
                 };
             };
             /** @description Validation Error */

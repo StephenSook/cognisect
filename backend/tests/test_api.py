@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import httpx
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 
 from cognisect.api import OWNER_COOKIE_NAME, create_app
 from cognisect.body_limit import MAX_REQUEST_BODY_BYTES
@@ -16,6 +18,7 @@ from cognisect.config import Settings
 from cognisect.database import create_session_factory
 from cognisect.db_models import (
     CaseRecord,
+    GeneratedProposalRecord,
     InvalidLearnerCommandRecord,
     LearnerResponseRecord,
     LearnerTokenRecord,
@@ -34,7 +37,9 @@ EXPECTED_PATHS = {
     "/v1/respond/{token}",
     "/v1/workflows/{workflow_id}/review",
     "/v1/workflows/{workflow_id}/audit",
+    "/v1/workflows/{workflow_id}/receipt",
     "/health",
+    "/ready",
     "/version",
 }
 
@@ -61,6 +66,7 @@ class ApiAnalyzer:
             ),
             model_id="test-model",
             model_snapshot="test-model-2026-07-16",
+            response_id="resp_test_metadata",
             request_id="req_test_metadata",
         )
 
@@ -72,8 +78,10 @@ def api_settings() -> Settings:
         database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
-        openai_api_key="",
+        openai_api_key="FORBIDDEN-PROVIDER-CREDENTIAL-41ac",
     )
 
 
@@ -137,11 +145,32 @@ async def test_public_route_paths_are_exact(app):
 @pytest.mark.postgres
 async def test_health_and_version(client):
     health = await client.get("/health")
+    ready = await client.get("/ready")
     version = await client.get("/version")
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ready"}
     assert version.status_code == 200
     assert version.json()["registry_version"] == "rule_registry.v1"
+    assert version.json()["source_revision"] == "development"
+
+
+@pytest.mark.postgres
+async def test_readiness_fails_closed_on_alembic_head_mismatch(client, db_engine):
+    async with db_engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE alembic_version SET version_num = 'e3b1c7d9a205'")
+        )
+    try:
+        response = await client.get("/ready")
+        assert response.status_code == 503
+        assert response.json() == {"detail": "not ready"}
+    finally:
+        async with db_engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE alembic_version SET version_num = 'a5d3e9b7c421'")
+            )
 
 
 @pytest.mark.postgres
@@ -220,6 +249,7 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
         "prompt_version",
         "compiler_version",
         "model_snapshot",
+        "model_response_id",
         "model_request_id",
         "created_at",
         "updated_at",
@@ -230,6 +260,8 @@ async def test_full_http_loop_privacy_headers_and_audit(client, app):
         "deterministic_evidence",
         "review_result",
     }.issubset(teacher)
+    assert teacher["model_response_id"] == "resp_test_metadata"
+    assert teacher["model_request_id"] == "req_test_metadata"
     assert teacher["source_tier"] == "custom"
     assert [item["rank"] for item in teacher["accepted_hypotheses"]] == [1, 2]
     assert teacher["compiled_probe"]["original_problem"] == {"a": -3, "b": 5}
@@ -328,6 +360,207 @@ async def test_cross_owner_access_returns_same_non_enumerating_404(app):
 
 
 @pytest.mark.postgres
+async def test_owner_receipt_includes_proof_and_excludes_every_forbidden_content_class(
+    client, app, db_engine
+):
+    observed_work = "FORBIDDEN-RAW-OBSERVED-WORK-f864"
+    rationale = "FORBIDDEN-LEARNER-RATIONALE-7bd1"
+    generated_prose = "FORBIDDEN-GENERATED-PROSE-f2d8"
+    teacher_note = "FORBIDDEN-TEACHER-NOTE-f90a"
+    edited_prose = "FORBIDDEN-EDITED-PROSE-781e"
+    provider_credential = app.state.settings.openai_api_key.get_secret_value()
+    owner_secret = client.cookies.get(OWNER_COOKIE_NAME)
+    created = await client.post(
+        "/v1/cases",
+        headers={"Idempotency-Key": "receipt-create-key"},
+        json={**case_payload(), "observed_work": observed_work},
+    )
+    identifiers = created.json()
+    analyzed = await client.post(
+        f"/v1/cases/{identifiers['case_id']}/analysis",
+        headers={"Idempotency-Key": "receipt-analysis-key"},
+        json={"expected_version": 0},
+    )
+    approved = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
+        headers={"Idempotency-Key": "receipt-approval-key"},
+        json={"expected_version": analyzed.json()["version"], "approved": True},
+    )
+    response_url = approved.json()["response_url"]
+    capability_token = urlparse(response_url).path.rsplit("/", 1)[-1]
+    learner_probe = await client.get(f"/v1/respond/{capability_token}")
+    problem = learner_probe.json()["problem"]
+    submitted = await client.post(
+        f"/v1/respond/{capability_token}",
+        headers={"Idempotency-Key": "receipt-submit-key"},
+        json={"answer": problem["a"] - problem["b"], "rationale": rationale},
+    )
+    assert submitted.status_code == 200
+    factory = create_session_factory(db_engine)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(GeneratedProposalRecord)
+            .where(GeneratedProposalRecord.workflow_id == identifiers["workflow_id"])
+            .values(generated_text=generated_prose)
+        )
+    pending = await client.get(f"/v1/workflows/{identifiers['workflow_id']}")
+    reviewed = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/review",
+        headers={"Idempotency-Key": "receipt-review-key"},
+        json={
+            "expected_version": pending.json()["version"],
+            "decision": "edited",
+            "note": teacher_note,
+            "edited_text": edited_prose,
+        },
+    )
+    assert reviewed.status_code == 200
+
+    receipt_response = await client.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+    serialized = receipt_response.text
+    receipt = receipt_response.json()
+
+    assert receipt_response.status_code == 200
+    assert receipt_response.headers["cache-control"] == "no-store, private"
+    assert receipt_response.headers["content-disposition"] == (
+        f'attachment; filename="cognisect-evidence-{identifiers["workflow_id"]}.json"'
+    )
+    assert receipt["receipt_version"] == "evidence_receipt.v1"
+    assert receipt["model_snapshot"] == "test-model-2026-07-16"
+    assert receipt["model_response_id"] == "resp_test_metadata"
+    assert receipt["model_request_id"] == "req_test_metadata"
+    assert receipt["compiled_probe"]["proof"]["domain_problem_count"] == 625
+    assert [event["sequence"] for event in receipt["audit_events"]] == list(range(1, 9))
+    canonical_payload = {key: value for key, value in receipt.items() if key != "receipt_hash"}
+    canonical = json.dumps(
+        canonical_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    assert receipt["receipt_hash"] == hashlib.sha256(canonical).hexdigest()
+    for forbidden in (
+        observed_work,
+        rationale,
+        capability_token,
+        response_url,
+        owner_secret,
+        generated_prose,
+        teacher_note,
+        edited_prose,
+        provider_credential,
+    ):
+        assert forbidden not in serialized
+
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as missing_owner,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies={OWNER_COOKIE_NAME: generate_secret()},
+        ) as other_owner,
+    ):
+        missing = await missing_owner.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+        cross_owner = await other_owner.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+    assert missing.status_code == cross_owner.status_code == 404
+    assert missing.json() == cross_owner.json() == {"detail": "resource not found"}
+    for unauthorized in (missing, cross_owner):
+        assert unauthorized.headers["cache-control"] == "no-store, private"
+        assert unauthorized.headers["referrer-policy"] == "no-referrer"
+
+
+@pytest.mark.postgres
+async def test_receipt_is_one_consistent_snapshot_during_concurrent_review(
+    client, app, monkeypatch
+):
+    created = await client.post(
+        "/v1/cases",
+        headers={"Idempotency-Key": "snapshot-create-key"},
+        json=case_payload(),
+    )
+    identifiers = created.json()
+    analyzed = await client.post(
+        f"/v1/cases/{identifiers['case_id']}/analysis",
+        headers={"Idempotency-Key": "snapshot-analysis-key"},
+        json={"expected_version": 0},
+    )
+    approved = await client.post(
+        f"/v1/workflows/{identifiers['workflow_id']}/probe-approval",
+        headers={"Idempotency-Key": "snapshot-approval-key"},
+        json={"expected_version": analyzed.json()["version"], "approved": True},
+    )
+    capability = urlparse(approved.json()["response_url"]).path.rsplit("/", 1)[-1]
+    learner_probe = await client.get(f"/v1/respond/{capability}")
+    problem = learner_probe.json()["problem"]
+    submitted = await client.post(
+        f"/v1/respond/{capability}",
+        headers={"Idempotency-Key": "snapshot-submit-key"},
+        json={"answer": problem["a"] - problem["b"]},
+    )
+    assert submitted.status_code == 200
+    pending = await client.get(f"/v1/workflows/{identifiers['workflow_id']}")
+    assert pending.json()["state"] == "AWAITING_REVIEW"
+
+    service = app.state.workflow_service
+    audit_read_started = asyncio.Event()
+    allow_audit_read = asyncio.Event()
+    reader_name = (
+        "_get_audit_events_in_session"
+        if hasattr(service, "_get_audit_events_in_session")
+        else "get_audit"
+    )
+    real_reader = getattr(service, reader_name)
+
+    async def paused_audit_reader(*args, **kwargs):
+        audit_read_started.set()
+        await allow_audit_read.wait()
+        return await real_reader(*args, **kwargs)
+
+    monkeypatch.setattr(service, reader_name, paused_audit_reader)
+    receipt_task = asyncio.create_task(
+        client.get(f"/v1/workflows/{identifiers['workflow_id']}/receipt")
+    )
+    await asyncio.wait_for(audit_read_started.wait(), timeout=5)
+    try:
+        reviewed = await client.post(
+            f"/v1/workflows/{identifiers['workflow_id']}/review",
+            headers={"Idempotency-Key": "snapshot-review-key"},
+            json={
+                "expected_version": pending.json()["version"],
+                "decision": "approved",
+                "note": "Concurrent teacher decision.",
+            },
+        )
+        assert reviewed.status_code == 200
+    finally:
+        allow_audit_read.set()
+    receipt_response = await asyncio.wait_for(receipt_task, timeout=5)
+    receipt = receipt_response.json()
+    observed = (
+        receipt["workflow_version"],
+        receipt["state"],
+        receipt["review_decision"],
+        max(event["version"] for event in receipt["audit_events"]),
+    )
+    assert observed in {
+        (
+            pending.json()["version"],
+            "AWAITING_REVIEW",
+            None,
+            pending.json()["version"],
+        ),
+        (
+            reviewed.json()["version"],
+            "APPROVED",
+            "approved",
+            reviewed.json()["version"],
+        ),
+    }
+
+
+@pytest.mark.postgres
 async def test_production_owner_cookie_is_hardened(db_engine, db_session):
     del db_session
     settings = Settings(
@@ -335,6 +568,8 @@ async def test_production_owner_cookie_is_hardened(db_engine, db_session):
         database_url="postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="https://cognisect.example",
         openai_api_key="sk-test-" + ("k" * 32),
     )

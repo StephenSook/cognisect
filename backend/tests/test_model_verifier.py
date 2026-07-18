@@ -58,6 +58,7 @@ async def test_verifier_disables_retries_and_requires_nine_exact_valid_results(
             payload = json.loads(kwargs["input"])
             return SimpleNamespace(
                 id=f"resp-{kwargs['model']}-{payload['sequence']}",
+                _request_id=f"req-{kwargs['model']}-{payload['sequence']}",
                 model=kwargs["model"],
                 output_parsed=VERIFY_MODELS.VerificationOutput(**payload),
             )
@@ -82,6 +83,43 @@ async def test_verifier_disables_retries_and_requires_nine_exact_valid_results(
     assert constructor["timeout"] == 30.0
     assert len(requests) == len(calls) == 9
     assert all(call["structured_output_valid"] is True for call in calls)
+    assert all(str(call["response_id"]).startswith("resp-") for call in calls)
+    assert all(str(call["request_id"]).startswith("req-") for call in calls)
+    assert all(call["response_id"] != call["request_id"] for call in calls)
+
+
+async def test_verifier_accepts_snapshots_and_preserves_missing_provider_request_id(
+    monkeypatch,
+) -> None:
+    class Responses:
+        async def parse(self, **kwargs):
+            payload = json.loads(kwargs["input"])
+            return SimpleNamespace(
+                id=f"resp-{kwargs['model']}-{payload['sequence']}",
+                _request_id=None,
+                model=f"{kwargs['model']}-2026-07-16",
+                output_parsed=VERIFY_MODELS.VerificationOutput(**payload),
+            )
+
+    class Client:
+        responses = Responses()
+
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(VERIFY_MODELS, "AsyncOpenAI", Client)
+
+    calls = await VERIFY_MODELS._verify("key")
+
+    assert len(calls) == 9
+    assert all(call["request_id"] is None for call in calls)
+    assert all(str(call["returned_model_id"]).endswith("-2026-07-16") for call in calls)
 
 
 def test_live_verifier_fails_closed_on_invalid_or_mismatched_result(

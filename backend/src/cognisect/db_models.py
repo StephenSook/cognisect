@@ -13,9 +13,11 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
+    PrimaryKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -65,6 +67,42 @@ class OwnerRecord(Base):
     cases: Mapped[list[CaseRecord]] = relationship(back_populates="owner", cascade="all, delete")
 
 
+class RateLimitWindowRecord(Base):
+    """HMAC-keyed fixed-window counter without persisted client identifiers."""
+
+    __tablename__ = "rate_limit_windows"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "scope",
+            "bucket_hash",
+            "window_started_at",
+            name="pk_rate_limit_windows",
+        ),
+        CheckConstraint(
+            "char_length(scope) BETWEEN 1 AND 64",
+            name="ck_rate_limit_windows_scope",
+        ),
+        CheckConstraint(
+            "bucket_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_rate_limit_windows_bucket_hash",
+        ),
+        CheckConstraint("consumed >= 1", name="ck_rate_limit_windows_consumed"),
+        CheckConstraint(
+            "expires_at > window_started_at",
+            name="ck_rate_limit_windows_expiry",
+        ),
+        Index("ix_rate_limit_windows_expires_at", "expires_at"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    bucket_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed: Mapped[int] = mapped_column(Integer, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CaseRecord(Timestamped, Base):
     """One de-identified educational case bound to an owner."""
 
@@ -79,6 +117,7 @@ class CaseRecord(Timestamped, Base):
         PGUUID(as_uuid=True), ForeignKey("owners.id", ondelete="CASCADE"), index=True
     )
     source_tier: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance_record_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     original_a: Mapped[int] = mapped_column(Integer, nullable=False)
     original_b: Mapped[int] = mapped_column(Integer, nullable=False)
     observed_work: Mapped[str] = mapped_column(Text, nullable=False)
@@ -120,6 +159,7 @@ class WorkflowRecord(Timestamped, Base):
         String(48), default=COMPILER_VERSION, nullable=False
     )
     model_snapshot: Mapped[str | None] = mapped_column(String(120))
+    model_response_id: Mapped[str | None] = mapped_column(String(160))
     model_request_id: Mapped[str | None] = mapped_column(String(160))
 
     case: Mapped[CaseRecord] = relationship(back_populates="workflows")
@@ -345,6 +385,7 @@ class ModelCallRecord(Base):
     model_snapshot: Mapped[str | None] = mapped_column(String(120))
     requested_model_id: Mapped[str] = mapped_column(String(120), nullable=False)
     returned_model_id: Mapped[str | None] = mapped_column(String(120))
+    response_id: Mapped[str | None] = mapped_column(String(160))
     request_id: Mapped[str | None] = mapped_column(String(160))
     attempt_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     purpose: Mapped[str] = mapped_column(String(16), nullable=False)

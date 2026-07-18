@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,11 +41,13 @@ describe("lab form", () => {
   it("offers a provenance-backed public exemplar and safe free-entry tiers", async () => {
     render(<LabForm />);
     const user = userEvent.setup();
-    expect(
-      screen.getAllByRole("option").map((option) => (option as HTMLOptionElement).value),
-    ).toEqual(["public_exemplar", "educator_authored", "custom"]);
-
-    await user.selectOptions(screen.getByLabelText("Case source"), "public_exemplar");
+    const sourceSelect = screen.getByLabelText("Case source") as HTMLSelectElement;
+    expect(Array.from(sourceSelect.options, (option) => option.value)).toEqual([
+      "public_exemplar",
+      "educator_authored",
+      "custom",
+    ]);
+    expect(sourceSelect).toHaveValue("public_exemplar");
     expect(screen.getByLabelText("Public case")).toHaveValue("cognisect-ea-001");
     expect(screen.getByLabelText("First integer")).toHaveValue("-3");
     expect(screen.getByLabelText("Second integer")).toHaveValue("5");
@@ -61,6 +63,44 @@ describe("lab form", () => {
     expect(
       screen.getByText(/Educator-authored public exemplar cognisect-ea-006/i),
     ).toBeInTheDocument();
+  });
+
+  it("sends the selected public provenance ID and null for educator free entry", async () => {
+    const created = {
+      case_id: "00000000-0000-4000-8000-000000000010",
+      workflow_id: "00000000-0000-4000-8000-000000000011",
+    };
+    const publicFetch = vi
+      .fn<(request: Request) => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json(created, { status: 201 }))
+      .mockResolvedValueOnce(Response.json(workflowFixture()));
+    vi.stubGlobal("fetch", publicFetch);
+    const publicForm = render(<LabForm />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Create and analyze" }));
+    await waitFor(() => expect(publicFetch).toHaveBeenCalledTimes(2));
+    expect(await (publicFetch.mock.calls[0]?.[0] as Request).json()).toMatchObject({
+      source_tier: "educator_authored",
+      provenance_record_id: "cognisect-ea-001",
+    });
+    publicForm.unmount();
+
+    const freeFetch = vi
+      .fn<(request: Request) => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json(created, { status: 201 }))
+      .mockResolvedValueOnce(Response.json(workflowFixture()));
+    vi.stubGlobal("fetch", freeFetch);
+    render(<LabForm />);
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Case source"), "educator_authored");
+    await user.type(screen.getByLabelText("First integer"), "-3");
+    await user.type(screen.getByLabelText("Second integer"), "5");
+    await user.type(screen.getByLabelText("Observed work"), "teacher-authored free entry");
+    await user.click(screen.getByRole("button", { name: "Create and analyze" }));
+    await waitFor(() => expect(freeFetch).toHaveBeenCalledTimes(2));
+    expect(await (freeFetch.mock.calls[0]?.[0] as Request).json()).toMatchObject({
+      source_tier: "educator_authored",
+      provenance_record_id: null,
+    });
   });
 
   it("preserves a cryptographically random idempotency key for exact retry", async () => {
@@ -200,7 +240,15 @@ describe("learner response form", () => {
       await screen.findByRole("heading", { level: 1, name: "Response received" }),
     ).toBeInTheDocument();
     const text = container.textContent ?? "";
-    for (const forbidden of ["hypothesis", "correct answer", "teacher", "model request"]) {
+    for (const forbidden of [
+      "hypothesis",
+      "correct answer",
+      "teacher",
+      "model request",
+      "model response",
+      "owner link",
+      "live evidence tour",
+    ]) {
       expect(text.toLowerCase()).not.toContain(forbidden);
     }
   });
@@ -277,6 +325,42 @@ describe("teacher decisions", () => {
       expect(body.decision).toBe(decision);
     },
   );
+
+  it("keeps an abstention with unavailable origin conservative throughout", () => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = null;
+
+    render(<WorkflowPanel initialWorkflow={workflow} />);
+
+    expect(screen.getByText("Constrained GPT mapping")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    const table = screen.getByRole("table", {
+      hidden: true,
+      name: "Persisted compiler trace table",
+    });
+    expect(within(table).getByText("Teacher approval").closest("tr")).toHaveTextContent(
+      "Custody origin unavailable",
+    );
+    expect(within(table).getByText("Learner response").closest("tr")).toHaveTextContent(
+      "Response status unavailable",
+    );
+    expect(within(table).getByText("Evidence update").closest("tr")).toHaveTextContent(
+      "Update status unavailable",
+    );
+    expect(
+      screen.getByText("The workflow abstained. Its durable origin is unavailable."),
+    ).toBeInTheDocument();
+    for (const unsupportedClaim of [
+      "Approved for release",
+      "Response recorded",
+      "Update complete",
+      "The teacher declined this probe.",
+    ]) {
+      expect(document.body).not.toHaveTextContent(unsupportedClaim);
+    }
+  });
 
   it("submits teacher probe abstention without creating a learner link", async () => {
     const terminal = workflowFixture("ABSTAINED");
@@ -404,6 +488,241 @@ describe("workflow polling", () => {
     expect(fetchImplementation).toHaveBeenCalledOnce();
   });
 
+  it("uses exact bounded delays of 2, 4, 8, and 15 seconds and caps there", async () => {
+    vi.useFakeTimers();
+    const fetchImplementation = vi.fn(async () => Response.json(workflowFixture("PROBE_READY")));
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetchImplementation).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(5);
+  });
+
+  it("resets the next poll to two seconds after a persisted state or version change", async () => {
+    vi.useFakeTimers();
+    const changed = workflowFixture("AWAITING_RESPONSE");
+    changed.version = 3;
+    const fetchImplementation = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json(workflowFixture("PROBE_READY")))
+      .mockResolvedValueOnce(Response.json(changed))
+      .mockResolvedValue(Response.json(changed));
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+  });
+
+  it("advances and caps the same 2, 4, 8, and 15 second schedule after failures", async () => {
+    vi.useFakeTimers();
+    const fetchImplementation = vi.fn().mockRejectedValue(new Error("backend unavailable"));
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(5);
+    expect(screen.getByText("Workflow refresh is temporarily unavailable.")).toBeInTheDocument();
+  });
+
+  it("stops after a terminal readback and cancels scheduled work on cleanup", async () => {
+    vi.useFakeTimers();
+    const terminal = workflowFixture("APPROVED");
+    const fetchImplementation = vi.fn(async () => Response.json(terminal));
+    vi.stubGlobal("fetch", fetchImplementation);
+    const terminalRender = render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    terminalRender.unmount();
+
+    fetchImplementation.mockClear();
+    const activeRender = render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+    activeRender.unmount();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  it("does not issue a scheduled GET after a teacher decision makes the workflow terminal", async () => {
+    vi.useFakeTimers();
+    const terminal = workflowFixture("ABSTAINED");
+    const fetchImplementation = vi.fn(async () =>
+      Response.json({ response_url: null, expires_at: null, workflow: terminal }),
+    );
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Decline probe" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a late stale poll after a newer teacher decision and preserves its learner link", async () => {
+    vi.useFakeTimers();
+    const stale = workflowFixture("PROBE_READY");
+    const approved = workflowFixture("AWAITING_RESPONSE");
+    approved.version = 3;
+    approved.learner_response_url = "http://localhost:3000/respond/newer-link";
+    let resolvePoll: ((response: Response) => void) | undefined;
+    let markPollParsed: (() => void) | undefined;
+    const pollParsed = new Promise<void>((resolve) => {
+      markPollParsed = resolve;
+    });
+    const fetchImplementation = vi.fn((request: Request) => {
+      if (request.method === "GET") {
+        return new Promise<Response>((resolve) => {
+          resolvePoll = resolve;
+        });
+      }
+      return Promise.resolve(
+        Response.json({
+          response_url: approved.learner_response_url,
+          expires_at: "2026-07-18T12:00:00Z",
+          workflow: approved,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchImplementation);
+    render(<WorkflowPanel initialWorkflow={stale} />);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Approve probe" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("Learner response link")).toHaveValue(
+      approved.learner_response_url,
+    );
+    expect(screen.queryByRole("region", { name: "Teacher probe decision" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      const staleResponse = Response.json(stale);
+      const readStale = staleResponse.text.bind(staleResponse);
+      vi.spyOn(staleResponse, "text").mockImplementation(async () => {
+        const parsed = await readStale();
+        markPollParsed?.();
+        return parsed;
+      });
+      resolvePoll?.(staleResponse);
+      await pollParsed;
+      vi.useRealTimers();
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    });
+
+    expect(screen.getByLabelText("Learner response link")).toHaveValue(
+      approved.learner_response_url,
+    );
+    expect(screen.queryByRole("region", { name: "Teacher probe decision" })).not.toBeInTheDocument();
+    expect(screen.getByText("Learner handoff")).toHaveAttribute("aria-current", "step");
+  });
+
+  it("rejects a teacher-decision response whose workflow version is older than the current snapshot", async () => {
+    const current = workflowFixture("PROBE_READY");
+    const staleDecision = workflowFixture("AWAITING_RESPONSE");
+    staleDecision.version = 1;
+    staleDecision.learner_response_url = "http://localhost:3000/respond/stale-link";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          response_url: staleDecision.learner_response_url,
+          expires_at: "2026-07-18T12:00:00Z",
+          workflow: staleDecision,
+        }),
+      ),
+    );
+    render(<WorkflowPanel initialWorkflow={current} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve probe" }));
+    await waitFor(() => expect(screen.getByText(/stale decision response was ignored/i)).toBeInTheDocument());
+
+    expect(screen.getByRole("region", { name: "Teacher probe decision" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Learner response link")).not.toBeInTheDocument();
+    expect(screen.getByText("First teacher gate")).toHaveAttribute("aria-current", "step");
+  });
+
+  it.each([
+    ["CREATED", "Constrained GPT mapping", "Not reached", "Not released", "Not started"],
+    ["ANALYZING", "Constrained GPT mapping", "Not reached", "Not released", "Not started"],
+    ["PROBE_READY", "First teacher gate", "Awaiting teacher", "Not released", "Pending response"],
+    ["AWAITING_RESPONSE", "Learner handoff", "Approved for release", "Awaiting response", "Pending response"],
+    ["RESPONSE_RECORDED", "Exact evidence update", "Approved for release", "Response recorded", "Update in progress"],
+    ["RESUME_PENDING", "Exact evidence update", "Approved for release", "Response recorded", "Update in progress"],
+    ["UPDATING", "Exact evidence update", "Approved for release", "Response recorded", "Update in progress"],
+    ["AWAITING_REVIEW", "Second teacher gate", "Approved for release", "Response recorded", "Update complete"],
+    ["APPROVED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
+    ["EDITED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
+    ["REJECTED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
+    ["FAILED", "625-domain deterministic scan", "Workflow failed", "Not released", "Update unavailable · failed"],
+  ])(
+    "maps persisted %s state to honest rail and topology progress",
+    (state, currentStage, teacherStage, learnerStage, updateStage) => {
+      const workflow = workflowFixture(state);
+      render(<WorkflowPanel initialWorkflow={workflow} />);
+
+      const tour = screen.getByRole("navigation", { name: "Live evidence tour" });
+      expect(within(tour).getByText(currentStage)).toHaveAttribute("aria-current", "step");
+      const table = screen.getByRole("table", {
+        hidden: true,
+        name: "Persisted compiler trace table",
+      });
+      expect(within(table).getByText("Teacher approval").closest("tr")).toHaveTextContent(
+        teacherStage,
+      );
+      expect(within(table).getByText("Learner response").closest("tr")).toHaveTextContent(
+        learnerStage,
+      );
+      expect(within(table).getByText("Evidence update").closest("tr")).toHaveTextContent(
+        updateStage,
+      );
+    },
+  );
+
+  it("places the only probe decision after proof summary and before secondary details", () => {
+    render(<WorkflowPanel initialWorkflow={workflowFixture("PROBE_READY")} />);
+
+    const chosenProbe = screen.getByTestId("chosen-probe-reveal");
+    const decisions = screen.getAllByRole("region", { name: "Teacher probe decision" });
+    const finalistSummary = screen.getByText("Inspect persisted finalists");
+    const topologySummary = screen.getByText("Open evidence table");
+    expect(decisions).toHaveLength(1);
+    expect(chosenProbe.compareDocumentPosition(decisions[0]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(decisions[0]!.compareDocumentPosition(finalistSummary)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(decisions[0]!.compareDocumentPosition(topologySummary)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
   it("keeps the approved learner link available and provides copy success", async () => {
     const responseUrl = "http://localhost:3000/respond/raw-learner-token";
     vi.stubGlobal(
@@ -445,48 +764,78 @@ describe("workflow polling", () => {
     );
   });
 
-  it("distinguishes probe-decline abstention from final-review abstention", () => {
-    const declinedProbe = workflowFixture("ABSTAINED");
-    const declined = render(<WorkflowPanel initialWorkflow={declinedProbe} />);
-    expect(
-      screen.getByText(
-        "The teacher declined this probe. The workflow abstained and no learner link was created.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Teacher approvalHuman release gateAbstained",
-    );
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Evidence updateExact prediction matchingNo update · abstained",
-    );
-    declined.unmount();
+  it.each([
+    [
+      "analysis",
+      "Constrained GPT mapping",
+      "Not reached",
+      "Not released",
+      "No update · analysis/compiler abstention",
+      "Analysis or deterministic compilation abstained before a learner handoff.",
+    ],
+    [
+      "teacher_probe",
+      "First teacher gate",
+      "Abstained",
+      "Not released",
+      "No update · teacher declined",
+      "The teacher declined this probe. The workflow abstained and no learner link was created.",
+    ],
+    [
+      "learner_response",
+      "Exact evidence update",
+      "Approved for release",
+      "Invalid response received",
+      "No update · invalid learner input",
+      "The workflow abstained after invalid learner input. No deterministic evidence update was produced.",
+    ],
+    [
+      "teacher_review",
+      "Evidence receipt",
+      "Approved for release",
+      "Response recorded",
+      "weakened",
+      "The teacher abstained at final review after the deterministic evidence update.",
+    ],
+  ] as const)(
+    "presents %s abstention from its durable origin",
+    (origin, currentStage, teacherStage, learnerStage, updateStage, outcome) => {
+      const workflow = workflowFixture("ABSTAINED");
+      workflow.abstention_origin = origin;
+      if (origin === "teacher_review") {
+        workflow.deterministic_evidence = [
+          { template_id: "add_subtrahend", rank: 1, status: "weakened" },
+        ];
+        workflow.review_result = {
+          decision: "abstained",
+          note: "The represented rules do not resolve this case.",
+          edited_text: null,
+          created_at: "2026-07-16T12:00:00Z",
+        };
+      }
 
-    const finalReview = workflowFixture("ABSTAINED");
-    finalReview.deterministic_evidence = [
-      { template_id: "add_subtrahend", rank: 1, status: "weakened" },
-      { template_id: "absolute_difference", rank: 2, status: "supported" },
-    ];
-    finalReview.review_result = {
-      decision: "abstained",
-      note: "The represented rules do not resolve this case.",
-      edited_text: null,
-      created_at: "2026-07-16T12:00:00Z",
-    };
+      render(<WorkflowPanel initialWorkflow={workflow} />);
 
-    render(<WorkflowPanel initialWorkflow={finalReview} />);
-
-    expect(
-      screen.queryByText(
-        "The teacher declined this probe. The workflow abstained and no learner link was created.",
-      ),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Teacher approvalHuman release gateApproved for release",
-    );
-    expect(screen.getByRole("table", { name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Learner responseOne strict signed integerResponse recorded",
-    );
-  });
+      expect(screen.getByText(currentStage)).toHaveAttribute("aria-current", "step");
+      const table = screen.getByRole("table", {
+        hidden: true,
+        name: "Persisted compiler trace table",
+      });
+      expect(within(table).getByText("Teacher approval").closest("tr")).toHaveTextContent(
+        teacherStage,
+      );
+      expect(within(table).getByText("Learner response").closest("tr")).toHaveTextContent(
+        learnerStage,
+      );
+      expect(within(table).getByText("Evidence update").closest("tr")).toHaveTextContent(
+        updateStage,
+      );
+      expect(screen.getByText(outcome)).toBeInTheDocument();
+      if (origin !== "teacher_probe") {
+        expect(screen.queryByText(/teacher declined this probe/i)).not.toBeInTheDocument();
+      }
+    },
+  );
 
   it("shows a selectable-link fallback when clipboard copy is unavailable", async () => {
     const responseUrl = "http://localhost:3000/respond/raw-learner-token";

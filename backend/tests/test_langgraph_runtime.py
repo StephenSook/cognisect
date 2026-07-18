@@ -12,12 +12,17 @@ import pytest
 import pytest_asyncio
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 
 from cognisect.api_models import CreateCaseRequest
 from cognisect.config import Settings
 from cognisect.database import create_session_factory
-from cognisect.db_models import CaseRecord, OwnerRecord, WorkflowRecord
+from cognisect.db_models import (
+    CaseRecord,
+    DeletionAuditTombstoneRecord,
+    OwnerRecord,
+    WorkflowRecord,
+)
 from cognisect.services import RetentionService, WorkflowService
 from cognisect.workflow_graph import (
     WorkflowGraphRuntime,
@@ -352,6 +357,59 @@ async def test_retention_purges_checkpoint_rows_in_the_content_transaction(
 
 
 @pytest.mark.postgres
+async def test_concurrent_retention_instances_claim_one_expired_workflow_once(
+    checkpointer, db_engine, seeded_workflow
+) -> None:
+    workflow, _owner = seeded_workflow
+    factory = create_session_factory(db_engine)
+    runtime_one = WorkflowGraphRuntime(
+        factory,
+        checkpointer,
+        update_action=lambda _workflow_id: None,
+    )
+    runtime_two = WorkflowGraphRuntime(
+        factory,
+        checkpointer,
+        update_action=lambda _workflow_id: None,
+    )
+    await runtime_one.start_probe_interrupt(workflow.id, workflow.thread_id)
+    now = datetime.now(UTC)
+    async with factory() as session, session.begin():
+        case = await session.get(CaseRecord, workflow.case_id)
+        assert case is not None
+        case.created_at = now - timedelta(days=31)
+
+    results = await asyncio.wait_for(
+        asyncio.gather(
+            RetentionService(
+                factory,
+                retention_days=30,
+                graph_runtime=runtime_one,
+            ).purge_expired(now=now),
+            RetentionService(
+                factory,
+                retention_days=30,
+                graph_runtime=runtime_two,
+            ).purge_expired(now=now),
+        ),
+        timeout=3,
+    )
+
+    assert sorted(results) == [0, 1]
+    async with factory() as session:
+        assert await session.scalar(select(func.count(DeletionAuditTombstoneRecord.id))) == 1
+        assert await session.scalar(select(func.count(OwnerRecord.id))) == 0
+        assert await session.scalar(select(func.count(CaseRecord.id))) == 0
+        assert await session.scalar(select(func.count(WorkflowRecord.id))) == 0
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            count = await session.scalar(
+                text(f"SELECT count(*) FROM {table} WHERE thread_id = :thread_id"),
+                {"thread_id": str(workflow.thread_id)},
+            )
+            assert count == 0
+
+
+@pytest.mark.postgres
 async def test_deletion_waits_for_inflight_graph_then_purges_every_checkpoint(
     checkpointer, db_engine
 ) -> None:
@@ -361,6 +419,8 @@ async def test_deletion_waits_for_inflight_graph_then_purges_every_checkpoint(
         database_url=TEST_DATABASE_URL,
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="",
     )
@@ -425,6 +485,8 @@ async def test_graph_commands_after_committed_deletion_never_recreate_checkpoint
         database_url=TEST_DATABASE_URL,
         owner_secret_pepper="o" * 32,
         learner_token_pepper="l" * 32,
+        abuse_key_pepper="a" * 32,
+        proxy_signing_secret="p" * 32,
         public_app_url="http://localhost:3000",
         openai_api_key="",
     )

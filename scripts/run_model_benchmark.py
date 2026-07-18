@@ -87,6 +87,39 @@ def _contains_forbidden_content(value: object) -> bool:
     return isinstance(value, str) and value.startswith("sk-")
 
 
+def _call_identity_is_truthful(value: object) -> bool:
+    """Require a response ID and a separately nullable provider request ID."""
+    if not isinstance(value, Mapping):
+        return False
+    response_id = value.get("response_id")
+    request_id = value.get("request_id")
+    return (
+        isinstance(response_id, str)
+        and bool(response_id)
+        and "request_id" in value
+        and (request_id is None or (isinstance(request_id, str) and bool(request_id)))
+        and request_id != response_id
+    )
+
+
+def _report_call_identities_are_truthful(report: Mapping[str, object]) -> bool:
+    items = report.get("items")
+    telemetry = report.get("telemetry")
+    if not isinstance(items, list) or not isinstance(telemetry, Mapping):
+        return False
+    calls = telemetry.get("calls")
+    if not isinstance(calls, list):
+        return False
+    item_calls: list[object] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            return False
+        item_calls.extend((item.get("terra"), item.get("sol")))
+    return len(item_calls) == _EXPECTED_MODEL_CALL_COUNT and len(calls) == (
+        _EXPECTED_MODEL_CALL_COUNT
+    ) and all(_call_identity_is_truthful(call) for call in [*item_calls, *calls])
+
+
 def validate_checked_report(path: Path, *, expected_protocol_sha256: str) -> bool:
     """Validate that a persisted report is complete and content-safe."""
     try:
@@ -100,6 +133,7 @@ def validate_checked_report(path: Path, *, expected_protocol_sha256: str) -> boo
         and report.get("model_results_status") == "completed"
         and report.get("protocol_sha256") == expected_protocol_sha256
         and report.get("learner_responses_collected") == 0
+        and _report_call_identities_are_truthful(report)
         and not _contains_forbidden_content(report)
     )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import replace
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -54,7 +55,14 @@ def _terra(mapping: RuleMappingV1, plan: InstructionalNotePlanV1 | None = None):
     )
 
 
-def _response(parsed, *, model: str, request_id: str, input_tokens: int = 100):
+def _response(
+    parsed,
+    *,
+    model: str,
+    request_id: str,
+    provider_request_id: str | None = None,
+    input_tokens: int = 100,
+):
     content_type = "refusal" if parsed == "REFUSAL" else "output_text"
     if hasattr(parsed, "model_dump_json"):
         output_text = parsed.model_dump_json()
@@ -64,6 +72,7 @@ def _response(parsed, *, model: str, request_id: str, input_tokens: int = 100):
         output_text = str(parsed)
     return SimpleNamespace(
         id=request_id,
+        _request_id=provider_request_id,
         model=model,
         output=[
             SimpleNamespace(
@@ -108,7 +117,8 @@ def _telemetry(*, status: str = "completed") -> ModelCallTelemetry:
     return ModelCallTelemetry(
         requested_model_id="gpt-5.6-terra",
         returned_model_id="gpt-5.6-terra" if status != "planned" else None,
-        request_id="resp_recovered" if status != "planned" else None,
+        response_id="resp_recovered" if status != "planned" else None,
+        request_id="req_recovered" if status != "planned" else None,
         status=status,
         latency_ms=7,
         input_tokens=100,
@@ -158,6 +168,8 @@ def _settings(**overrides) -> Settings:
         "database_url": "postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect",
         "owner_secret_pepper": "o" * 32,
         "learner_token_pepper": "l" * 32,
+        "abuse_key_pepper": "a" * 32,
+        "proxy_signing_secret": "p" * 32,
         "public_app_url": "http://localhost:3000",
         "openai_api_key": "sk-test-" + ("k" * 32),
     }
@@ -290,10 +302,11 @@ async def test_official_malformed_json_preserves_metadata_and_repairs_once() -> 
     assert result.abstention_cause is None
     assert result.mapping == _mapping("add_subtrahend", "absolute_difference")
     assert requests == 2
-    assert [call.request_id for call in result.model_calls] == [
+    assert [call.response_id for call in result.model_calls] == [
         "resp_malformed_1",
         "resp_malformed_2",
     ]
+    assert [call.request_id for call in result.model_calls] == [None, None]
     assert [call.status for call in result.model_calls] == [
         "malformed_output",
         "completed",
@@ -316,6 +329,62 @@ async def test_completed_terra_attempt_replays_staged_result_without_provider_di
     assert result.calls_persisted is True
     assert client.responses.calls == []
     assert journal.events == [("plan", 1)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        replace(_telemetry(), response_id=None),
+        replace(_telemetry(), returned_model_id="gpt-5.6-sol"),
+        replace(_telemetry(), response_id="same-provider-id", request_id="same-provider-id"),
+        replace(_telemetry(), requested_model_id="gpt-5.6-sol"),
+    ],
+)
+async def test_completed_recovery_with_invalid_identity_never_releases_artifact(
+    telemetry: ModelCallTelemetry,
+) -> None:
+    journal = MemoryAttemptJournal(
+        {1: (telemetry, _terra(_mapping("add_subtrahend", "absolute_difference")))}
+    )
+    client = FakeClient([AssertionError("recovered attempts must not dispatch")])
+
+    result = await ResponsesAnalyzer(
+        _settings(), client=client, journal=journal
+    ).analyze(_input("teacher text", source_tier="educator_authored"))
+
+    assert result.mapping is None
+    assert result.abstention_cause == "policy_failure"
+    assert client.responses.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        _telemetry(),
+        replace(
+            _telemetry(),
+            returned_model_id="gpt-5.6-terra-2026-07-16",
+            request_id=None,
+        ),
+    ],
+)
+async def test_completed_recovery_accepts_exact_or_snapshot_identity(
+    telemetry: ModelCallTelemetry,
+) -> None:
+    artifact = _terra(_mapping("add_subtrahend", "absolute_difference"))
+    journal = MemoryAttemptJournal({1: (telemetry, artifact)})
+    client = FakeClient([AssertionError("recovered attempts must not dispatch")])
+
+    result = await ResponsesAnalyzer(
+        _settings(), client=client, journal=journal
+    ).analyze(_input("teacher text", source_tier="educator_authored"))
+
+    assert result.mapping == artifact.mapping
+    assert result.abstention_cause is None
+    assert result.request_id == telemetry.request_id
+    assert client.responses.calls == []
 
 
 @pytest.mark.asyncio
@@ -411,7 +480,8 @@ async def test_inconsistent_usage_finalizes_metadata_and_replays_without_provide
     assert first.abstention_cause == "policy_failure"
     telemetry = journal.existing[1][0]
     assert telemetry.status == "policy_failure"
-    assert telemetry.request_id == "resp_inconsistent_usage"
+    assert telemetry.response_id == "resp_inconsistent_usage"
+    assert telemetry.request_id is None
     assert telemetry.returned_model_id == "gpt-5.6-terra"
     assert telemetry.input_tokens == 100
     assert telemetry.output_tokens == 20
@@ -818,7 +888,8 @@ async def test_telemetry_captures_ids_usage_cost_and_hashes_but_no_content() -> 
 
     assert len(result.model_calls) == 1
     call = result.model_calls[0]
-    assert call.request_id == "resp_meta"
+    assert call.response_id == "resp_meta"
+    assert call.request_id is None
     assert call.returned_model_id == "gpt-5.6-terra"
     assert call.input_tokens == 100
     assert call.output_tokens == 20

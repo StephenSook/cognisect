@@ -91,7 +91,8 @@
           "absolute_difference"
         ],
         "prompt_hash": "6af38a60c5547d3423544bbdbe2cdc21f7fc5a208241c3065b48829d624f413f",
-        "request_id": "resp_049ea81ebd763e44016a59c08f5408819cb6f985b2b156ad12",
+        "request_id": null,
+        "response_id": "resp_049ea81ebd763e44016a59c08f5408819cb6f985b2b156ad12",
         "status": "completed"
       },
       "terra": {
@@ -101,7 +102,8 @@
           "subtract_magnitudes"
         ],
         "prompt_hash": "e3e64eff55d90e96acfc0c633fe076dceffeb3354ae1904935a1d3c979894db9",
-        "request_id": "resp_0f55b2c64798aa61016a59c088dd808192b700c1c7cea2aac9",
+        "request_id": null,
+        "response_id": "resp_0f55b2c64798aa61016a59c088dd808192b700c1c7cea2aac9",
         "status": "completed"
       },
       "terra_probe_specification_hash": "ef3595f1b0e4c5e0a17237c56d6af922555413e200858039907151b19297bf74",
@@ -122,7 +124,8 @@
           "subtract_magnitudes"
         ],
         "prompt_hash": "95ae44e0353b21e55ef3da83c96ec98757459942baab64ce3b45c99fe81523eb",
-        "request_id": "resp_01258e05ab96526f016a59c09aee78819da7c96be4acca8e56",
+        "request_id": null,
+        "response_id": "resp_01258e05ab96526f016a59c09aee78819da7c96be4acca8e56",
         "status": "completed"
       },
       "terra": {
@@ -133,7 +136,8 @@
           "subtract_magnitudes"
         ],
         "prompt_hash": "1f52716b89c1ee22c728b8bfee14662eaf41600b12874c4cf8dbbde617786eec",
-        "request_id": "resp_084d581f97b60b14016a59c0980fb48191a7555ae5531d5606",
+        "request_id": null,
+        "response_id": "resp_084d581f97b60b14016a59c0980fb48191a7555ae5531d5606",
         "status": "completed"
       },
       "terra_probe_specification_hash": "7dfe33ecc6b9b969c73ec96f7564f81842be1403ed02b48daa17e689a0e5df02",
@@ -153,7 +157,8 @@
           "negative_magnitude_sum"
         ],
         "prompt_hash": "979f15f59b66ae19629900148a6789effb7323e0ffaab275efa2205a0802d54f",
-        "request_id": "resp_00b898fc92e38bc5016a59c0a157c8819d9d841082bfff48eb",
+        "request_id": null,
+        "response_id": "resp_00b898fc92e38bc5016a59c0a157c8819d9d841082bfff48eb",
         "status": "completed"
       },
       "terra": {
@@ -164,7 +169,8 @@
           "negative_magnitude_sum"
         ],
         "prompt_hash": "7d22d86e16260b45f8b143f23c3aa8b7b5cfa23ed4b4ea368a02f5887f49f2c9",
-        "request_id": "resp_0629bfd347956b73016a59c09edec0819d9ea22229b2f59dea",
+        "request_id": null,
+        "response_id": "resp_0629bfd347956b73016a59c09edec0819d9ea22229b2f59dea",
         "status": "completed"
       },
       "terra_probe_specification_hash": "980e33c0241893b7001eba19289466bbccae809cb0f3a036a578b49f747dd37c",
@@ -183,7 +189,8 @@
           "keep_minuend_sign"
         ],
         "prompt_hash": "3f2b4362ffd4994900f3f71147d4a60d396102740bf2749b1eccf16f1d97536c",
-        "request_id": "resp_067d752fdd1adc93016a59c0ab6424819c98c95f737cc3ccd0",
+        "request_id": null,
+        "response_id": "resp_067d752fdd1adc93016a59c0ab6424819c98c95f737cc3ccd0",
         "status": "completed"
       },
       "terra": {
@@ -193,7 +200,8 @@
           "keep_minuend_sign"
         ],
         "prompt_hash": "496051181b39e7f05499d57fe8a96ef8da122f00d0a9c6ae41621fc55241d5cb",
-        "request_id": "resp_08653e38a7386ea4016a59c0a8bd0c819cbf62d938c07f00f8",
+        "request_id": null,
+        "response_id": "resp_08653e38a7386ea4016a59c0a8bd0c819cbf62d938c07f00f8",
         "status": "completed"
       },
       "terra_probe_specification_hash": "f106352a7b8479e49957e17126d1f7893eb642af2f767faffe8b3a04dd1ede57",
@@ -212,7 +220,8 @@
           "keep_minuend_sign"
         ],
         "prompt_hash": "ce01405773a5100fb0cc0d3c84a8bc7a99ee96546ebcbd74798d9820db4b301c",
-        "request_id": "resp_002ed59637ceb9e9016a59c0b1a0488192b0fd3b0ead4a8b32",
+        "request_id": null,
+        "response_id": "resp_002ed59637ceb9e9016a59c0b1a0488192b0fd3b0ead4a8b32",
         "status": "completed"
       },
       "terra": {
@@ -222,7 +231,8 @@
           "keep_minuend_sign"
         ],
         "prompt_hash": "00978b05dbd219e1181a31aabf467028e87c2d2b32e4c984544f0b6429a89689",
-        "request_id": "resp_06bde543e4663952016a59c0aea8e081a184af2f5ad073a675",
+        "request_id": null,
+        "response_id": "resp_06bde543e4663952016a59c0aea8e081a184af2f5ad073a675",
         "status": "completed"
       },
       "terra_probe_specification_hash": "7e64aba2bf98425631af80132e772f79b0e1a8e1f497fc3a895635e64aeb01d0",
@@ -241,7 +251,8 @@
           "keep_minuend_sign"
         ],
         "prompt_hash": "4124651624d43520506b84c2518e9536cf442003e696039ee28161f2fa63af9f",
-        "request_id": "resp_04ebf2346756a886016a59c0b7184881a29f1eecab41eccd87",
+        "request_id": null,
+        "response_id": "resp_04ebf2346756a886016a59c0b7184881a29f1eecab41eccd87",
         "status": "completed"
       },
       "terra": {
@@ -251,7 +262,8 @@
           "keep_minuend_sign"
         ],
         "prompt_hash": "4510512fbb7a80cd4bc66865886eb5d770a76c94946d83d5a59596d3ebe37e16",
-        "request_id": "resp_0f3cd51a6d91b6e1016a59c0b472bc8191aaa56e33d231b4cb",
+        "request_id": null,
+        "response_id": "resp_0f3cd51a6d91b6e1016a59c0b472bc8191aaa56e33d231b4cb",
         "status": "completed"
       },
       "terra_probe_specification_hash": "7233a4857867548babf23454ef30e1a42d3f6e6890a2915baf3a476d624c18eb",
@@ -311,7 +323,8 @@
         "prompt_hash": "e3e64eff55d90e96acfc0c633fe076dceffeb3354ae1904935a1d3c979894db9",
         "purpose": "terra",
         "reasoning_tokens": 386,
-        "request_id": "resp_0f55b2c64798aa61016a59c088dd808192b700c1c7cea2aac9",
+        "request_id": null,
+        "response_id": "resp_0f55b2c64798aa61016a59c088dd808192b700c1c7cea2aac9",
         "requested_model_id": "gpt-5.6-terra",
         "returned_model_id": "gpt-5.6-terra",
         "schema_valid": true
@@ -329,7 +342,8 @@
         "prompt_hash": "6af38a60c5547d3423544bbdbe2cdc21f7fc5a208241c3065b48829d624f413f",
         "purpose": "sol",
         "reasoning_tokens": 137,
-        "request_id": "resp_049ea81ebd763e44016a59c08f5408819cb6f985b2b156ad12",
+        "request_id": null,
+        "response_id": "resp_049ea81ebd763e44016a59c08f5408819cb6f985b2b156ad12",
         "requested_model_id": "gpt-5.6-sol",
         "returned_model_id": "gpt-5.6-sol",
         "schema_valid": true
@@ -347,7 +361,8 @@
         "prompt_hash": "1f52716b89c1ee22c728b8bfee14662eaf41600b12874c4cf8dbbde617786eec",
         "purpose": "terra",
         "reasoning_tokens": 104,
-        "request_id": "resp_084d581f97b60b14016a59c0980fb48191a7555ae5531d5606",
+        "request_id": null,
+        "response_id": "resp_084d581f97b60b14016a59c0980fb48191a7555ae5531d5606",
         "requested_model_id": "gpt-5.6-terra",
         "returned_model_id": "gpt-5.6-terra",
         "schema_valid": true
@@ -365,7 +380,8 @@
         "prompt_hash": "95ae44e0353b21e55ef3da83c96ec98757459942baab64ce3b45c99fe81523eb",
         "purpose": "sol",
         "reasoning_tokens": 101,
-        "request_id": "resp_01258e05ab96526f016a59c09aee78819da7c96be4acca8e56",
+        "request_id": null,
+        "response_id": "resp_01258e05ab96526f016a59c09aee78819da7c96be4acca8e56",
         "requested_model_id": "gpt-5.6-sol",
         "returned_model_id": "gpt-5.6-sol",
         "schema_valid": true
@@ -383,7 +399,8 @@
         "prompt_hash": "7d22d86e16260b45f8b143f23c3aa8b7b5cfa23ed4b4ea368a02f5887f49f2c9",
         "purpose": "terra",
         "reasoning_tokens": 65,
-        "request_id": "resp_0629bfd347956b73016a59c09edec0819d9ea22229b2f59dea",
+        "request_id": null,
+        "response_id": "resp_0629bfd347956b73016a59c09edec0819d9ea22229b2f59dea",
         "requested_model_id": "gpt-5.6-terra",
         "returned_model_id": "gpt-5.6-terra",
         "schema_valid": true
@@ -401,7 +418,8 @@
         "prompt_hash": "979f15f59b66ae19629900148a6789effb7323e0ffaab275efa2205a0802d54f",
         "purpose": "sol",
         "reasoning_tokens": 104,
-        "request_id": "resp_00b898fc92e38bc5016a59c0a157c8819d9d841082bfff48eb",
+        "request_id": null,
+        "response_id": "resp_00b898fc92e38bc5016a59c0a157c8819d9d841082bfff48eb",
         "requested_model_id": "gpt-5.6-sol",
         "returned_model_id": "gpt-5.6-sol",
         "schema_valid": true
@@ -419,7 +437,8 @@
         "prompt_hash": "496051181b39e7f05499d57fe8a96ef8da122f00d0a9c6ae41621fc55241d5cb",
         "purpose": "terra",
         "reasoning_tokens": 110,
-        "request_id": "resp_08653e38a7386ea4016a59c0a8bd0c819cbf62d938c07f00f8",
+        "request_id": null,
+        "response_id": "resp_08653e38a7386ea4016a59c0a8bd0c819cbf62d938c07f00f8",
         "requested_model_id": "gpt-5.6-terra",
         "returned_model_id": "gpt-5.6-terra",
         "schema_valid": true
@@ -437,7 +456,8 @@
         "prompt_hash": "3f2b4362ffd4994900f3f71147d4a60d396102740bf2749b1eccf16f1d97536c",
         "purpose": "sol",
         "reasoning_tokens": 69,
-        "request_id": "resp_067d752fdd1adc93016a59c0ab6424819c98c95f737cc3ccd0",
+        "request_id": null,
+        "response_id": "resp_067d752fdd1adc93016a59c0ab6424819c98c95f737cc3ccd0",
         "requested_model_id": "gpt-5.6-sol",
         "returned_model_id": "gpt-5.6-sol",
         "schema_valid": true
@@ -455,7 +475,8 @@
         "prompt_hash": "00978b05dbd219e1181a31aabf467028e87c2d2b32e4c984544f0b6429a89689",
         "purpose": "terra",
         "reasoning_tokens": 96,
-        "request_id": "resp_06bde543e4663952016a59c0aea8e081a184af2f5ad073a675",
+        "request_id": null,
+        "response_id": "resp_06bde543e4663952016a59c0aea8e081a184af2f5ad073a675",
         "requested_model_id": "gpt-5.6-terra",
         "returned_model_id": "gpt-5.6-terra",
         "schema_valid": true
@@ -473,7 +494,8 @@
         "prompt_hash": "ce01405773a5100fb0cc0d3c84a8bc7a99ee96546ebcbd74798d9820db4b301c",
         "purpose": "sol",
         "reasoning_tokens": 55,
-        "request_id": "resp_002ed59637ceb9e9016a59c0b1a0488192b0fd3b0ead4a8b32",
+        "request_id": null,
+        "response_id": "resp_002ed59637ceb9e9016a59c0b1a0488192b0fd3b0ead4a8b32",
         "requested_model_id": "gpt-5.6-sol",
         "returned_model_id": "gpt-5.6-sol",
         "schema_valid": true
@@ -491,7 +513,8 @@
         "prompt_hash": "4510512fbb7a80cd4bc66865886eb5d770a76c94946d83d5a59596d3ebe37e16",
         "purpose": "terra",
         "reasoning_tokens": 109,
-        "request_id": "resp_0f3cd51a6d91b6e1016a59c0b472bc8191aaa56e33d231b4cb",
+        "request_id": null,
+        "response_id": "resp_0f3cd51a6d91b6e1016a59c0b472bc8191aaa56e33d231b4cb",
         "requested_model_id": "gpt-5.6-terra",
         "returned_model_id": "gpt-5.6-terra",
         "schema_valid": true
@@ -509,7 +532,8 @@
         "prompt_hash": "4124651624d43520506b84c2518e9536cf442003e696039ee28161f2fa63af9f",
         "purpose": "sol",
         "reasoning_tokens": 94,
-        "request_id": "resp_04ebf2346756a886016a59c0b7184881a29f1eecab41eccd87",
+        "request_id": null,
+        "response_id": "resp_04ebf2346756a886016a59c0b7184881a29f1eecab41eccd87",
         "requested_model_id": "gpt-5.6-sol",
         "returned_model_id": "gpt-5.6-sol",
         "schema_valid": true

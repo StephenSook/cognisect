@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from cognisect.db_models import RateLimitWindowRecord
 from cognisect.models import RuleInstanceV1, RuleMappingV1
 
 ROOT = Path(__file__).parents[2]
@@ -166,3 +167,20 @@ def test_mapping_rejects_extra_fields_and_wrong_schema_version() -> None:
         RuleMappingV1.model_validate(with_extra)
     with pytest.raises(ValidationError):
         RuleMappingV1.model_validate(wrong_version)
+
+
+def test_rate_limit_table_has_explicit_constraints_and_expiry_leading_index() -> None:
+    table = RateLimitWindowRecord.__table__
+    constraint_names = {constraint.name for constraint in table.constraints}
+    assert {
+        "pk_rate_limit_windows",
+        "ck_rate_limit_windows_scope",
+        "ck_rate_limit_windows_bucket_hash",
+        "ck_rate_limit_windows_consumed",
+        "ck_rate_limit_windows_expiry",
+    } <= constraint_names
+    assert ["expires_at"] in [
+        [column.name for column in index.columns] for index in table.indexes
+    ]
+    assert table.c.window_started_at.type.timezone is True
+    assert table.c.expires_at.type.timezone is True
