@@ -958,6 +958,52 @@ async def test_retention_selects_and_purges_cases_older_than_configured_days(
 
 
 @pytest.mark.postgres
+async def test_concurrent_retention_instances_keep_one_owner_batch_together(
+    service, db_engine, case_request, test_settings
+):
+    owner_secret = await service.bootstrap_owner()
+    first = await service.create_case(
+        case_request,
+        idempotency_key="retention-owner-first",
+        owner_secret=owner_secret,
+    )
+    second = await service.create_case(
+        case_request,
+        idempotency_key="retention-owner-second",
+        owner_secret=owner_secret,
+    )
+    factory = create_session_factory(db_engine)
+    now = datetime.now(UTC)
+    async with factory() as session, session.begin():
+        await session.execute(
+            update(CaseRecord)
+            .where(CaseRecord.id.in_((first.case_id, second.case_id)))
+            .values(created_at=now - timedelta(days=test_settings.retention_days + 1))
+        )
+
+    results = await asyncio.wait_for(
+        asyncio.gather(
+            RetentionService(
+                factory,
+                retention_days=test_settings.retention_days,
+            ).purge_expired(now=now),
+            RetentionService(
+                factory,
+                retention_days=test_settings.retention_days,
+            ).purge_expired(now=now),
+        ),
+        timeout=3,
+    )
+
+    assert sorted(results) == [0, 2]
+    async with factory() as session:
+        assert await session.scalar(select(func.count(DeletionAuditTombstoneRecord.id))) == 2
+        assert await session.scalar(select(func.count(OwnerRecord.id))) == 0
+        assert await session.scalar(select(func.count(CaseRecord.id))) == 0
+        assert await session.scalar(select(func.count(WorkflowRecord.id))) == 0
+
+
+@pytest.mark.postgres
 async def test_retention_purges_abandoned_empty_owner_sessions(
     service, db_engine, test_settings
 ):

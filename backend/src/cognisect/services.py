@@ -1809,8 +1809,13 @@ class RetentionService:
                         CaseRecord.owner_id,
                     )
                     .join(CaseRecord, CaseRecord.id == WorkflowRecord.case_id)
+                    .join(OwnerRecord, OwnerRecord.id == CaseRecord.owner_id)
                     .where(CaseRecord.created_at < cutoff)
                     .order_by(WorkflowRecord.id)
+                    .with_for_update(
+                        of=(WorkflowRecord, OwnerRecord),
+                        skip_locked=True,
+                    )
                 )
             ).all()
             for workflow_id, thread_id, _case_id, _owner_id in rows:
