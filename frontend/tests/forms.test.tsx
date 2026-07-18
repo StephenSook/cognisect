@@ -649,7 +649,6 @@ describe("workflow polling", () => {
     ["APPROVED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
     ["EDITED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
     ["REJECTED", "Evidence receipt", "Approved for release", "Response recorded", "Update complete"],
-    ["ABSTAINED", "First teacher gate", "Abstained", "Not released", "No update · abstained"],
     ["FAILED", "625-domain deterministic scan", "Workflow failed", "Not released", "Update unavailable · failed"],
   ])(
     "maps persisted %s state to honest rail and topology progress",
@@ -729,49 +728,78 @@ describe("workflow polling", () => {
     );
   });
 
-  it("distinguishes probe-decline abstention from final-review abstention", () => {
-    const declinedProbe = workflowFixture("ABSTAINED");
-    const declined = render(<WorkflowPanel initialWorkflow={declinedProbe} />);
-    expect(
-      screen.getByText(
-        "The teacher declined this probe. The workflow abstained and no learner link was created.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText("First teacher gate")).toHaveAttribute("aria-current", "step");
-    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Teacher approvalHuman release gateAbstained",
-    );
-    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Evidence updateExact prediction matchingNo update · abstained",
-    );
-    declined.unmount();
+  it.each([
+    [
+      "analysis",
+      "Constrained GPT mapping",
+      "Not reached",
+      "Not released",
+      "No update · analysis/compiler abstention",
+      "Analysis or deterministic compilation abstained before a learner handoff.",
+    ],
+    [
+      "teacher_probe",
+      "First teacher gate",
+      "Abstained",
+      "Not released",
+      "No update · teacher declined",
+      "The teacher declined this probe. The workflow abstained and no learner link was created.",
+    ],
+    [
+      "learner_response",
+      "Exact evidence update",
+      "Approved for release",
+      "Invalid response received",
+      "No update · invalid learner input",
+      "The workflow abstained after invalid learner input. No deterministic evidence update was produced.",
+    ],
+    [
+      "teacher_review",
+      "Evidence receipt",
+      "Approved for release",
+      "Response recorded",
+      "weakened",
+      "The teacher abstained at final review after the deterministic evidence update.",
+    ],
+  ] as const)(
+    "presents %s abstention from its durable origin",
+    (origin, currentStage, teacherStage, learnerStage, updateStage, outcome) => {
+      const workflow = workflowFixture("ABSTAINED");
+      workflow.abstention_origin = origin;
+      if (origin === "teacher_review") {
+        workflow.deterministic_evidence = [
+          { template_id: "add_subtrahend", rank: 1, status: "weakened" },
+        ];
+        workflow.review_result = {
+          decision: "abstained",
+          note: "The represented rules do not resolve this case.",
+          edited_text: null,
+          created_at: "2026-07-16T12:00:00Z",
+        };
+      }
 
-    const finalReview = workflowFixture("ABSTAINED");
-    finalReview.deterministic_evidence = [
-      { template_id: "add_subtrahend", rank: 1, status: "weakened" },
-      { template_id: "absolute_difference", rank: 2, status: "supported" },
-    ];
-    finalReview.review_result = {
-      decision: "abstained",
-      note: "The represented rules do not resolve this case.",
-      edited_text: null,
-      created_at: "2026-07-16T12:00:00Z",
-    };
+      render(<WorkflowPanel initialWorkflow={workflow} />);
 
-    render(<WorkflowPanel initialWorkflow={finalReview} />);
-
-    expect(
-      screen.queryByText(
-        "The teacher declined this probe. The workflow abstained and no learner link was created.",
-      ),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Teacher approvalHuman release gateApproved for release",
-    );
-    expect(screen.getByRole("table", { hidden: true, name: "Persisted compiler trace table" })).toHaveTextContent(
-      "Learner responseOne strict signed integerResponse recorded",
-    );
-  });
+      expect(screen.getByText(currentStage)).toHaveAttribute("aria-current", "step");
+      const table = screen.getByRole("table", {
+        hidden: true,
+        name: "Persisted compiler trace table",
+      });
+      expect(within(table).getByText("Teacher approval").closest("tr")).toHaveTextContent(
+        teacherStage,
+      );
+      expect(within(table).getByText("Learner response").closest("tr")).toHaveTextContent(
+        learnerStage,
+      );
+      expect(within(table).getByText("Evidence update").closest("tr")).toHaveTextContent(
+        updateStage,
+      );
+      expect(screen.getByText(outcome)).toBeInTheDocument();
+      if (origin !== "teacher_probe") {
+        expect(screen.queryByText(/teacher declined this probe/i)).not.toBeInTheDocument();
+      }
+    },
+  );
 
   it("shows a selectable-link fallback when clipboard copy is unavailable", async () => {
     const responseUrl = "http://localhost:3000/respond/raw-learner-token";

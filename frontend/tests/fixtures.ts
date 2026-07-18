@@ -24,6 +24,7 @@ export function workflowFixture(
     model_response_id: "resp_public_metadata",
     model_request_id: "req_public_metadata",
     learner_response_url: null,
+    abstention_origin: null,
     created_at: "2026-07-16T10:00:00Z",
     updated_at: "2026-07-16T10:01:00Z",
     version: 2,

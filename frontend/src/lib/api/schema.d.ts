@@ -651,6 +651,8 @@ export interface components {
          * @description Teacher-facing workflow snapshot with reproducibility metadata.
          */
         WorkflowResponse: {
+            /** Abstention Origin */
+            abstention_origin: ("analysis" | "teacher_probe" | "learner_response" | "teacher_review") | null;
             /** Accepted Hypotheses */
             accepted_hypotheses: components["schemas"]["AcceptedHypothesisResponse"][];
             /**

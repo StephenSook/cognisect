@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cognisect.api_models import (
+    AbstentionOrigin,
     AcceptedHypothesisResponse,
     AnswerConstraints,
     AuditEventResponse,
@@ -94,6 +95,13 @@ if TYPE_CHECKING:
     from cognisect.models import TemplateId
 
 Clock = Callable[[], datetime]
+
+ABSTENTION_ORIGIN_BY_PREDECESSOR: dict[WorkflowState, AbstentionOrigin] = {
+    WorkflowState.ANALYZING: "analysis",
+    WorkflowState.PROBE_READY: "teacher_probe",
+    WorkflowState.AWAITING_RESPONSE: "learner_response",
+    WorkflowState.AWAITING_REVIEW: "teacher_review",
+}
 
 
 class ServiceError(RuntimeError):
@@ -1486,6 +1494,21 @@ class WorkflowService:
             learner_response_url = (
                 f"{self._settings.public_app_url}/respond/{active_secret}"
             )
+        abstention_origin = None
+        if workflow.state == WorkflowState.ABSTAINED:
+            abstention_predecessor = await session.scalar(
+                select(AuditEventRecord.from_state)
+                .where(
+                    AuditEventRecord.workflow_id == workflow_id,
+                    AuditEventRecord.to_state == WorkflowState.ABSTAINED,
+                )
+                .order_by(AuditEventRecord.sequence.desc())
+                .limit(1)
+            )
+            if abstention_predecessor is not None:
+                abstention_origin = ABSTENTION_ORIGIN_BY_PREDECESSOR.get(
+                    abstention_predecessor
+                )
         return WorkflowResponse(
             workflow_id=workflow.id,
             case_id=workflow.case_id,
@@ -1500,6 +1523,7 @@ class WorkflowService:
             model_response_id=workflow.model_response_id,
             model_request_id=workflow.model_request_id,
             learner_response_url=learner_response_url,
+            abstention_origin=abstention_origin,
             created_at=workflow.created_at,
             updated_at=workflow.updated_at,
             version=workflow.version,

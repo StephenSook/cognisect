@@ -43,6 +43,7 @@ def _workflow_with_forbidden_sentinels() -> WorkflowResponse:
         model_response_id="FORBIDDEN-PROVIDER-RESPONSE-983a",
         model_request_id="FORBIDDEN-PROVIDER-REQUEST-b1d3",
         learner_response_url=f"https://example.test/respond/{capability}",
+        abstention_origin=None,
         created_at=moment,
         updated_at=moment,
         version=8,

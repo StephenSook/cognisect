@@ -50,6 +50,21 @@ describe("teacher report content", () => {
     expect(within(tour).getByText(stage)).toHaveAttribute("aria-current", "step");
   });
 
+  it.each([
+    ["analysis", "Constrained GPT mapping"],
+    ["teacher_probe", "First teacher gate"],
+    ["learner_response", "Exact evidence update"],
+    ["teacher_review", "Evidence receipt"],
+  ] as const)("maps %s abstention to its durable report stage", (origin, stage) => {
+    const workflow = workflowFixture("ABSTAINED");
+    workflow.abstention_origin = origin;
+
+    render(<ReportView workflow={workflow} audit={{ workflow_id: workflow.workflow_id, events: [] }} />);
+
+    const tour = screen.getByRole("navigation", { name: "Live evidence tour" });
+    expect(within(tour).getByText(stage)).toHaveAttribute("aria-current", "step");
+  });
+
   it("renders persisted deterministic evidence, proposal, review, and audit readback", () => {
     const workflow = workflowFixture("AWAITING_REVIEW");
     workflow.deterministic_evidence = [

@@ -218,6 +218,7 @@ async def test_analysis_persists_probe_and_predictions_before_any_token(
     assert token_count == 0
 
     dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin is None
     assert dto.compiled_probe is not None
     assert dto.compiled_probe.proof.domain_problem_count == 625
     assert dto.compiled_probe.proof.eligible_candidate_count == 624
@@ -404,6 +405,25 @@ async def test_no_separating_probe_transitions_to_abstained(
         idempotency_key="analyze",
     )
     assert workflow.state == WorkflowState.ABSTAINED
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin == "analysis"
+
+
+@pytest.mark.postgres
+async def test_teacher_probe_decline_origin_comes_from_transition_predecessor(
+    service, case_request
+):
+    created, workflow = await prepare_probe(service, case_request)
+    declined = await service.approve_probe(
+        owner_secret=created.owner_secret,
+        workflow_id=created.workflow_id,
+        request=ProbeApprovalRequest(expected_version=workflow.version, approved=False),
+        idempotency_key="decline-origin",
+    )
+
+    assert declined.workflow.state == WorkflowState.ABSTAINED
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin == "teacher_probe"
 
 
 @pytest.mark.postgres
@@ -568,6 +588,8 @@ async def test_concurrent_invalid_answers_abstain_once_and_replay_one_receipt(
     assert len({receipt.receipt_id for receipt in receipts}) == 1
     persisted = await service.get_workflow(created.owner_secret, created.workflow_id)
     assert persisted.state == WorkflowState.ABSTAINED
+    dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
+    assert dto.abstention_origin == "learner_response"
     factory = create_session_factory(db_engine)
     async with factory() as session:
         assert await session.scalar(select(func.count(InvalidLearnerCommandRecord.id))) == 1
@@ -724,6 +746,7 @@ async def test_final_teacher_abstention_persists_before_graph_resume_and_replays
     assert graph.resumes == 2
     dto = await service.get_workflow_dto(created.owner_secret, created.workflow_id)
     assert dto.state == "ABSTAINED"
+    assert dto.abstention_origin == "teacher_review"
     assert dto.edited_text is None
     events = await service.get_audit(created.owner_secret, created.workflow_id)
     assert events[-1].to_state == WorkflowState.ABSTAINED

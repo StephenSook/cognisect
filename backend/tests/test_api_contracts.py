@@ -12,6 +12,7 @@ from cognisect.api_models import (
     CreateCaseRequest,
     LearnerProbeResponse,
     ReviewRequest,
+    WorkflowResponse,
 )
 from cognisect.config import Settings
 from cognisect.security import generate_derivation_nonce, generate_secret, hash_secret
@@ -25,6 +26,28 @@ VALID_ENV = {
     "public_app_url": "https://cognisect.example",
     "openai_api_key": "sk-test-" + ("k" * 32),
 }
+
+
+def test_workflow_abstention_origin_is_required_nullable_closed_vocabulary() -> None:
+    schema = WorkflowResponse.model_json_schema()
+    field_schema = schema["properties"]["abstention_origin"]
+
+    assert "abstention_origin" in schema["required"]
+    assert field_schema == {
+        "anyOf": [
+            {
+                "enum": [
+                    "analysis",
+                    "teacher_probe",
+                    "learner_response",
+                    "teacher_review",
+                ],
+                "type": "string",
+            },
+            {"type": "null"},
+        ],
+        "title": "Abstention Origin",
+    }
 
 
 @pytest.mark.parametrize(

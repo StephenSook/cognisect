@@ -230,11 +230,11 @@ export function WorkflowPanel({ initialWorkflow }: { initialWorkflow: Workflow }
         </section>
       )}
 
-      {stages.probeDeclined ? (
+      {stages.abstentionMessage === null ? null : (
         <p className="workflow-outcome" role="status">
-          The teacher declined this probe. The workflow abstained and no learner link was created.
+          {stages.abstentionMessage}
         </p>
-      ) : null}
+      )}
       {learnerLink === null ? null : (
         <section className="workbench-card learner-link-card" aria-labelledby="learner-link-heading">
           <p className="card-index mono">OPAQUE CAPABILITY / 24H</p>

@@ -1035,6 +1035,23 @@
         "additionalProperties": false,
         "description": "Teacher-facing workflow snapshot with reproducibility metadata.",
         "properties": {
+          "abstention_origin": {
+            "anyOf": [
+              {
+                "enum": [
+                  "analysis",
+                  "teacher_probe",
+                  "learner_response",
+                  "teacher_review"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Origin"
+          },
           "accepted_hypotheses": {
             "items": {
               "$ref": "#/components/schemas/AcceptedHypothesisResponse"
@@ -1228,6 +1245,7 @@
           "model_response_id",
           "model_request_id",
           "learner_response_url",
+          "abstention_origin",
           "created_at",
           "updated_at",
           "version",

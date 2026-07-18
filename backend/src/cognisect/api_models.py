@@ -18,6 +18,12 @@ SourceTier = Literal[
     "educator_authored",
     "custom",
 ]
+AbstentionOrigin = Literal[
+    "analysis",
+    "teacher_probe",
+    "learner_response",
+    "teacher_review",
+]
 NonEmptyText = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=10_000)]
 ProvenanceRecordId = Annotated[
     str,
@@ -263,6 +269,7 @@ class WorkflowResponse(StrictContractModel):
     model_response_id: str | None
     model_request_id: str | None
     learner_response_url: str | None
+    abstention_origin: AbstentionOrigin | None
     created_at: datetime
     updated_at: datetime
     version: int

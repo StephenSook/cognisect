@@ -21,6 +21,7 @@ export type WorkflowPresentation = {
   teacherStage: string;
   learnerStage: string;
   updateStage: string;
+  abstentionMessage: string | null;
 };
 
 export function workflowPresentation(workflow: Workflow): WorkflowPresentation {
@@ -31,11 +32,21 @@ export function workflowPresentation(workflow: Workflow): WorkflowPresentation {
     RESPONSE_PERSISTED_STATES.has(workflow.state) ||
     workflow.deterministic_evidence.length > 0 ||
     workflow.review_result !== null;
-  const probeDeclined =
-    workflow.state === "ABSTAINED" && workflow.review_result === null && !hasRecordedResponse;
+  const abstentionOrigin = workflow.state === "ABSTAINED"
+    ? workflow.abstention_origin
+    : null;
+  const probeDeclined = abstentionOrigin === "teacher_probe";
 
   let judgeStage: JudgeTourStage;
-  if (workflow.state === "CREATED" || workflow.state === "ANALYZING") {
+  if (abstentionOrigin === "analysis") {
+    judgeStage = "model-mapping";
+  } else if (abstentionOrigin === "teacher_probe") {
+    judgeStage = "teacher-gate-one";
+  } else if (abstentionOrigin === "learner_response") {
+    judgeStage = "evidence-update";
+  } else if (abstentionOrigin === "teacher_review") {
+    judgeStage = "evidence-receipt";
+  } else if (workflow.state === "CREATED" || workflow.state === "ANALYZING") {
     judgeStage = "model-mapping";
   } else if (workflow.state === "PROBE_READY" || probeDeclined) {
     judgeStage = "teacher-gate-one";
@@ -58,26 +69,34 @@ export function workflowPresentation(workflow: Workflow): WorkflowPresentation {
     judgeStage = "model-mapping";
   }
 
-  const teacherStage = workflow.state === "PROBE_READY"
-    ? "Awaiting teacher"
-    : probeDeclined
-      ? "Abstained"
-      : workflow.state === "CREATED" || workflow.state === "ANALYZING"
-        ? "Not reached"
-        : workflow.state === "FAILED"
-          ? "Workflow failed"
-          : "Approved for release";
+  const teacherStage = abstentionOrigin === "analysis"
+    ? "Not reached"
+    : workflow.state === "PROBE_READY"
+      ? "Awaiting teacher"
+      : probeDeclined
+        ? "Abstained"
+        : workflow.state === "CREATED" || workflow.state === "ANALYZING"
+          ? "Not reached"
+          : workflow.state === "FAILED"
+            ? "Workflow failed"
+            : "Approved for release";
 
-  const learnerStage = hasRecordedResponse
-    ? "Response recorded"
-    : workflow.state === "AWAITING_RESPONSE"
-      ? "Awaiting response"
-      : "Not released";
+  const learnerStage = abstentionOrigin === "learner_response"
+    ? "Invalid response received"
+    : hasRecordedResponse
+      ? "Response recorded"
+      : workflow.state === "AWAITING_RESPONSE"
+        ? "Awaiting response"
+        : "Not released";
 
   let updateStage: string;
   if (evidenceStatuses.length > 0) updateStage = evidenceStatuses.join(" / ");
-  else if (probeDeclined) updateStage = "No update · abstained";
-  else if (workflow.state === "FAILED") updateStage = "Update unavailable · failed";
+  else if (abstentionOrigin === "analysis") {
+    updateStage = "No update · analysis/compiler abstention";
+  } else if (probeDeclined) updateStage = "No update · teacher declined";
+  else if (abstentionOrigin === "learner_response") {
+    updateStage = "No update · invalid learner input";
+  } else if (workflow.state === "FAILED") updateStage = "Update unavailable · failed";
   else if (UPDATE_IN_PROGRESS_STATES.has(workflow.state)) updateStage = "Update in progress";
   else if (
     workflow.state === "AWAITING_REVIEW" ||
@@ -91,5 +110,29 @@ export function workflowPresentation(workflow: Workflow): WorkflowPresentation {
     updateStage = "Pending response";
   }
 
-  return { judgeStage, probeDeclined, teacherStage, learnerStage, updateStage };
+  let abstentionMessage: string | null = null;
+  if (abstentionOrigin === "analysis") {
+    abstentionMessage =
+      "Analysis or deterministic compilation abstained before a learner handoff.";
+  } else if (abstentionOrigin === "teacher_probe") {
+    abstentionMessage =
+      "The teacher declined this probe. The workflow abstained and no learner link was created.";
+  } else if (abstentionOrigin === "learner_response") {
+    abstentionMessage =
+      "The workflow abstained after invalid learner input. No deterministic evidence update was produced.";
+  } else if (abstentionOrigin === "teacher_review") {
+    abstentionMessage =
+      "The teacher abstained at final review after the deterministic evidence update.";
+  } else if (workflow.state === "ABSTAINED") {
+    abstentionMessage = "The workflow abstained. Its durable origin is unavailable.";
+  }
+
+  return {
+    judgeStage,
+    probeDeclined,
+    teacherStage,
+    learnerStage,
+    updateStage,
+    abstentionMessage,
+  };
 }
