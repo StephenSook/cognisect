@@ -43,6 +43,21 @@ separates them, while keeping the teacher in control of what reaches the learner
 The preview uses free Vercel, Render web, and Render Postgres resources, so the
 first request may cold-start.
 
+## Mobile apps
+
+COGNISECT is also available as a lightweight Expo shell around the verified
+production workflow. The native shell keeps the same teacher-controlled flow,
+opens external links safely, and uses the COGNISECT brand mark on both platforms.
+
+- **Android APK (preview build):** [Install the APK](https://expo.dev/artifacts/eas/rKIdQko5lkJ4qkC53OM_sAShYGi4fvpROZ6P--eDHZM.apk)
+- **iOS TestFlight:** [Join or install from TestFlight](https://appstoreconnect.apple.com/apps/6792204091/testflight/ios)
+- **Expo project:** [View mobile builds and submission status](https://expo.dev/accounts/stephensook/projects/cognisect-mobile)
+
+The Android artifact is an installable APK. The iOS artifact is distributed
+through TestFlight and may remain unavailable briefly while Apple processes a
+new upload. Mobile builds load `https://cognisect.vercel.app`; the backend and
+database remain the same production services as the web app.
+
 ## COGNISECT in one loop
 
 > A teacher submits de-identified observed work. GPT-5.6 ranks instances from an

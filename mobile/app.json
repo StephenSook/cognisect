@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "COGNISECT",
+    "slug": "cognisect-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "cognisect",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cognisect.mobile",
+      "buildNumber": "2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.cognisect.mobile",
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "backgroundColor": "#0b6f68"
+      }
+    },
+    "icon": "./assets/cognisect-logo.png",
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b47ab2cb-f5bf-44cb-8a07-1da1362b618f"
+      }
+    },
+    "owner": "stephensook"
+  }
+}

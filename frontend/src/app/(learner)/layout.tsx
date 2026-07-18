@@ -3,9 +3,7 @@ export default function LearnerLayout({ children }: Readonly<{ children: React.R
     <div className="learner-shell">
       <header className="learner-header">
         <span className="learner-brand" aria-label="COGNISECT">
-          <span className="brand-mark" aria-hidden="true">
-            C
-          </span>
+          <img className="brand-mark brand-logo" src="/branding/cognisect-logo.png" alt="" aria-hidden="true" />
           <span>COGNISECT</span>
         </span>
         <p className="learner-boundary">One response · no diagnosis</p>
