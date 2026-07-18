@@ -9,12 +9,14 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cognisect.mobile",
+      "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.cognisect.mobile",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#0b6f68"
       }
