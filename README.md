@@ -159,8 +159,9 @@ cd cognisect
 cp .env.example .env
 docker compose up -d --wait postgres
 uv sync --frozen
-./scripts/migrate.sh
-./scripts/run-backend.sh
+set -a; source .env; set +a
+uv run ./scripts/migrate.sh
+uv run ./scripts/run-backend.sh
 ```
 
 In a second terminal:
