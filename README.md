@@ -49,7 +49,7 @@ COGNISECT is also available as a lightweight Expo shell around the verified
 production workflow. The native shell keeps the same teacher-controlled flow,
 opens external links safely, and uses the COGNISECT brand mark on both platforms.
 
-- **Android APK (preview build):** [Install the APK](https://expo.dev/artifacts/eas/rKIdQko5lkJ4qkC53OM_sAShYGi4fvpROZ6P--eDHZM.apk)
+- **Android APK (v1.0.0, build 2):** [Install the APK](https://github.com/StephenSook/cognisect/releases/download/mobile-v1.0.0-build-2/cognisect-android-v1.0.0-build-2.apk)
 - **iOS TestFlight:** [Join or install from TestFlight](https://appstoreconnect.apple.com/apps/6792204091/testflight/ios)
 - **Expo project:** [View mobile builds and submission status](https://expo.dev/accounts/stephensook/projects/cognisect-mobile)
 
