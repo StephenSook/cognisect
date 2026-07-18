@@ -4,6 +4,7 @@ import pytest
 
 from run_frontend_server import (
     TEST_DATABASE_URL,
+    FrontendReadDelay,
     _guard_migration_environment,
     _require_local_test_database,
 )
@@ -30,3 +31,14 @@ def test_frontend_harness_forces_exact_local_alembic_environment():
     environment = {"DATABASE_URL": TEST_DATABASE_URL}
     _guard_migration_environment(environment)
     assert environment == {"COGNISECT_DATABASE_URL": TEST_DATABASE_URL}
+
+
+def test_frontend_harness_delay_is_allowlisted_and_one_shot():
+    delay = FrontendReadDelay()
+
+    delay.arm("/v1/workflows/owned-workflow")
+    assert delay.consume("/v1/workflows/owned-workflow") == 3.0
+    assert delay.consume("/v1/workflows/owned-workflow") == 0.0
+
+    with pytest.raises(ValueError, match="allowlisted"):
+        delay.arm("/health")

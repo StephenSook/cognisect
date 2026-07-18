@@ -155,7 +155,7 @@ def test_public_copy_preserves_claim_boundaries() -> None:
     registry = (ROOT / "docs" / "specs" / "rule-registry-v1.md").read_text(
         encoding="utf-8"
     )
-    landing = (ROOT / "frontend" / "src" / "app" / "page.tsx").read_text(
+    landing = (ROOT / "frontend" / "src" / "app" / "(teacher)" / "page.tsx").read_text(
         encoding="utf-8"
     )
     lowered = f"{readme}\n{evaluation}\n{registry}\n{landing}".lower()

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import MutableMapping
+from dataclasses import dataclass
 
 import uvicorn
 from alembic import command
 from alembic.config import Config
+from fastapi import Request
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.engine import make_url
 
 from cognisect.api import create_app
@@ -18,6 +22,26 @@ from cognisect.services import AnalysisInput, AnalyzerResult
 TEST_DATABASE_URL = (
     "postgresql+psycopg://cognisect:cognisect@localhost:54329/cognisect"
 )
+_DELAYED_READ_PREFIXES = ("/v1/workflows/", "/v1/respond/")
+
+
+@dataclass
+class FrontendReadDelay:
+    """One-shot latency control available only in the local Playwright harness."""
+
+    path_prefix: str | None = None
+
+    def arm(self, path_prefix: str) -> None:
+        if not any(path_prefix.startswith(prefix) for prefix in _DELAYED_READ_PREFIXES):
+            msg = "frontend delay path must use an allowlisted read prefix"
+            raise ValueError(msg)
+        self.path_prefix = path_prefix
+
+    def consume(self, path: str) -> float:
+        if self.path_prefix is None or not path.startswith(self.path_prefix):
+            return 0.0
+        self.path_prefix = None
+        return 3.0
 
 
 def _require_local_test_database(database_url: str) -> None:
@@ -92,6 +116,27 @@ def main() -> None:
         openai_api_key="",
     )
     app = create_app(settings=settings, analyzer=DeterministicFrontendAnalyzer())
+    read_delay = FrontendReadDelay()
+
+    @app.middleware("http")
+    async def delay_next_read(request: Request, call_next):
+        delay_seconds = read_delay.consume(request.url.path) if request.method == "GET" else 0.0
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+        return await call_next(request)
+
+    @app.post("/__e2e__/delay-next-read", include_in_schema=False)
+    async def arm_read_delay(request: Request) -> Response:
+        command_body = await request.json()
+        path_prefix = command_body.get("path_prefix") if isinstance(command_body, dict) else None
+        if not isinstance(path_prefix, str):
+            return JSONResponse({"detail": "path_prefix must be a string"}, status_code=400)
+        try:
+            read_delay.arm(path_prefix)
+        except ValueError as error:
+            return JSONResponse({"detail": str(error)}, status_code=400)
+        return Response(status_code=204)
+
     uvicorn.run(app, host="127.0.0.1", port=8000, access_log=False)
 
 

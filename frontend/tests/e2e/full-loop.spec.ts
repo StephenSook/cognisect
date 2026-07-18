@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
-import { E2E_APP_URL } from "../../e2e-settings";
+import { E2E_APP_URL, E2E_BACKEND_URL } from "../../e2e-settings";
 
 function captureBrowserFailures(page: Page, failures: string[]) {
   page.on("console", (message) => {
@@ -179,6 +179,70 @@ test("unowned teacher resources keep one top-level main landmark", async ({ page
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   }
+});
+
+test("slow upstream reads show audience-scoped pending shells", async ({ page, browser }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.setExtraHTTPHeaders({
+    "x-vercel-forwarded-for": testInfo.project.name === "desktop"
+      ? "203.0.113.30"
+      : "203.0.113.31",
+  });
+  await page.goto("/lab");
+  await page.getByRole("button", { name: "Create and analyze" }).click();
+  await expect(page.locator(".form-alert")).toHaveText(
+    "The private owner session is ready. Retry sends the exact locked command.",
+  );
+  await page.getByRole("button", { name: "Retry exact command" }).click();
+  await expect(page).toHaveURL(/\/case\/[0-9a-f-]+$/, { timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Approve probe" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve probe" }).click();
+  const learnerLink = await page.getByLabel("Learner response link").inputValue();
+  const workflowId = new URL(page.url()).pathname.split("/").at(-1)!;
+
+  const teacherDelay = await page.request.post(`${E2E_BACKEND_URL}/__e2e__/delay-next-read`, {
+    data: { path_prefix: `/v1/workflows/${workflowId}` },
+  });
+  expect(teacherDelay.status()).toBe(204);
+  const teacherStartedAt = Date.now();
+  const teacherNavigation = page.goto(`/case/${workflowId}`);
+  const teacherLoading = page
+    .locator('p[role="status"]:visible')
+    .filter({ hasText: "Loading current persisted state…" });
+  await expect(teacherLoading).toHaveText("Loading current persisted state…", { timeout: 1_500 });
+  expect(Date.now() - teacherStartedAt).toBeLessThan(1_500);
+  await expect(page.locator("main")).toHaveCount(1);
+  await expect(page.locator("main main")).toHaveCount(0);
+  await expectTeacherShell(page);
+  await teacherNavigation;
+  await expect(teacherLoading).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Compiled probe" })).toBeVisible();
+  await expect(page.locator("main")).toHaveCount(1);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  const learnerDelay = await page.request.post(`${E2E_BACKEND_URL}/__e2e__/delay-next-read`, {
+    data: { path_prefix: "/v1/respond/" },
+  });
+  expect(learnerDelay.status()).toBe(204);
+  const learnerContext = await browser.newContext({
+    viewport: testInfo.project.use.viewport ?? undefined,
+  });
+  const learnerPage = await learnerContext.newPage();
+  const learnerStartedAt = Date.now();
+  const learnerNavigation = learnerPage.goto(learnerLink);
+  const learnerLoading = learnerPage
+    .locator('p[role="status"]:visible')
+    .filter({ hasText: "Loading learner response…" });
+  await expect(learnerLoading).toHaveText("Loading learner response…", { timeout: 1_500 });
+  expect(Date.now() - learnerStartedAt).toBeLessThan(1_500);
+  await expectIsolatedLearnerShell(learnerPage);
+  await expect(learnerPage.locator("main main")).toHaveCount(0);
+  await learnerNavigation;
+  await expect(learnerLoading).toHaveCount(0);
+  await expect(learnerPage.getByRole("heading", { name: "Learner response" })).toBeVisible();
+  await expectIsolatedLearnerShell(learnerPage);
+  expect((await new AxeBuilder({ page: learnerPage }).analyze()).violations).toEqual([]);
+  await learnerContext.close();
 });
 
 test("teacher to isolated learner to teacher report", async ({ page, browser }, testInfo) => {
